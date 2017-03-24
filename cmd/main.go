@@ -42,7 +42,13 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	go func() {
 		<-c
-		log.Println("received interrupt, releasing credentials")
+		log.Printf("%s: received interrupt, revoking", creds.LeaseID())
+		err := vault.Revoke(client, creds)
+		if err != nil {
+			log.Fatalf("%s: ERROR: while revoking credentials: %s", err.Error())
+		} else {
+			log.Printf("%s: successfully revoked credentials.", creds.LeaseID())
+		}
 		cancel()
 	}()
 

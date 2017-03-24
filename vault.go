@@ -43,14 +43,14 @@ func RequestCredentials(client *api.Client, path string) (*Credentials, error) {
 }
 
 func renew(client *api.Client, credentials *Credentials, extension time.Duration) error {
-	log.Printf("renewing lease by %s", extension)
+	log.Printf("%s: renewing lease by %s.", credentials.LeaseID(), extension)
 
 	op := func() error {
-		secret, err := client.Sys().Renew(credentials.LeaseID(), int(extension.Seconds()))
+		_, err := client.Sys().Renew(credentials.LeaseID(), int(extension.Seconds()))
 		if err != nil {
 			return err
 		}
-		log.Printf("successfully renewed. %+v", secret)
+		log.Printf("%s: successfully renewed.", credentials.LeaseID())
 
 		return nil
 	}
@@ -67,16 +67,19 @@ func renew(client *api.Client, credentials *Credentials, extension time.Duration
 	return nil
 }
 
+func Revoke(client *api.Client, credentials *Credentials) error {
+	return client.Sys().Revoke(credentials.LeaseID())
+}
+
 func Renew(ctx context.Context, client *api.Client, credentials *Credentials, interval time.Duration) {
 	log.Printf("renewing every %s", interval)
 	ticks := time.Tick(interval)
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("stopping renew")
 			return
 		case <-ticks:
-			renew(client, credentials, interval)
+			renew(client, credentials, interval+time.Second*10)
 		}
 	}
 }
