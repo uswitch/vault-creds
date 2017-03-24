@@ -40,6 +40,4 @@ func main() {
 	} else {
 		t.Execute(os.Stdout, creds)
 	}
-
-	// log.Printf("creds: %+v\n", creds)
 }
