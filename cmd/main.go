@@ -27,7 +27,12 @@ func main() {
 		log.Fatal("error opening template:", err)
 	}
 
-	creds, err := vault.RequestCredentials(*vaultAddr, *credsPath, *token)
+	client, err := vault.Client(*vaultAddr, *token)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	creds, err := vault.RequestCredentials(client, *credsPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -50,7 +55,7 @@ func main() {
 
 		t.Execute(file, creds)
 		log.Printf("wrote credentials to %s", file.Name())
-		go vault.Renew(ctx, creds, *renew)
+		go vault.Renew(ctx, client, creds, *renew)
 	} else {
 		t.Execute(os.Stdout, creds)
 	}
