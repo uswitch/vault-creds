@@ -1,7 +1,10 @@
 package vault
 
 import (
+	"context"
 	api "github.com/hashicorp/vault/api"
+	"log"
+	"time"
 )
 
 type Credentials struct {
@@ -29,4 +32,22 @@ func RequestCredentials(vaultAddr, path string, token string) (*Credentials, err
 	}
 
 	return &Credentials{secret.Data["username"].(string), secret.Data["password"].(string), secret}, nil
+}
+
+func renew(credentials *Credentials) {
+	log.Println("renewing lease")
+}
+
+func Renew(ctx context.Context, credentials *Credentials, interval time.Duration) {
+	log.Printf("renewing every %s", interval)
+	ticks := time.Tick(interval)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("stopping renew")
+			return
+		case <-ticks:
+			renew(credentials)
+		}
+	}
 }

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	vault "github.com/uswitch/vault-creds"
 	"gopkg.in/alecthomas/kingpin.v2"
 	"log"
 	"os"
+	"os/signal"
 	"text/template"
 )
 
@@ -13,6 +15,7 @@ var (
 	token        = kingpin.Flag("token", "Vault token to use in development").String()
 	templateFile = kingpin.Flag("template", "Path to template file").ExistingFile()
 	out          = kingpin.Flag("out", "Output file name").String()
+	renew        = kingpin.Flag("renew", "Interval to renew credentials").Default("1m").Duration()
 	credsPath    = kingpin.Arg("path", "Vault path to DB credentials").String()
 )
 
@@ -29,6 +32,15 @@ func main() {
 		log.Fatal(err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		<-c
+		log.Println("received interrupt, releasing credentials")
+		cancel()
+	}()
+
 	if *out != "" {
 		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 		if err != nil {
@@ -37,7 +49,11 @@ func main() {
 		defer file.Close()
 
 		t.Execute(file, creds)
+		log.Printf("wrote credentials to %s", file.Name())
+		go vault.Renew(ctx, creds, *renew)
 	} else {
 		t.Execute(os.Stdout, creds)
 	}
+
+	<-ctx.Done()
 }
