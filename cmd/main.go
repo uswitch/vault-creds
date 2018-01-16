@@ -2,21 +2,26 @@ package main
 
 import (
 	"context"
+	log "github.com/Sirupsen/logrus"
 	vault "github.com/uswitch/vault-creds"
 	"gopkg.in/alecthomas/kingpin.v2"
-	"log"
 	"os"
 	"os/signal"
 	"text/template"
 )
 
 var (
-	vaultAddr    = kingpin.Flag("addr", "Vault address").Default("https://localhost:8200").String()
-	token        = kingpin.Flag("token", "Vault token to use in development").String()
-	templateFile = kingpin.Flag("template", "Path to template file").ExistingFile()
-	out          = kingpin.Flag("out", "Output file name").String()
-	renew        = kingpin.Flag("renew", "Interval to renew credentials").Default("1m").Duration()
-	credsPath    = kingpin.Arg("path", "Vault path to DB credentials").String()
+	vaultAddr           = kingpin.Flag("addr", "Vault address").Default("https://data-vault.main.vpc.usw.co").String()
+	serviceAccountToken = kingpin.Flag("token", "Service account token path").Default("/var/run/secrets/kubernetes.io/serviceaccount/token").String()
+	loginPath           = kingpin.Flag("login-path", "Vault path to authenticate against").Required().String()
+	role                = kingpin.Flag("role", "Login role").Required().String()
+	path                = kingpin.Flag("path", "Secret path").Required().String()
+	caCert              = kingpin.Flag("ca-cert", "Path to CA certificate to validate Vault server").String()
+	tlsHost             = kingpin.Flag("tls-host", "Vault host for SNI TLS").String()
+	templateFile        = kingpin.Flag("template", "Path to template file").ExistingFile()
+	out                 = kingpin.Flag("out", "Output file name").String()
+	renew               = kingpin.Flag("renew", "Interval to renew credentials").Default("1m").Duration()
+	leaseDuration       = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
 )
 
 func main() {
@@ -27,12 +32,16 @@ func main() {
 		log.Fatal("error opening template:", err)
 	}
 
-	client, err := vault.Client(*vaultAddr, *token)
+	client, err := vault.Client(*vaultAddr, &vault.TLSConfig{CACert: *caCert, ServerName: *tlsHost})
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = vault.Authenticate(client, *serviceAccountToken, *loginPath, *role)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	creds, err := vault.RequestCredentials(client, *credsPath)
+	creds, err := vault.RequestCredentials(client, *path)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -40,17 +49,6 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
-	go func() {
-		<-c
-		log.Printf("%s: received interrupt, revoking", creds.LeaseID())
-		err := vault.Revoke(client, creds)
-		if err != nil {
-			log.Fatalf("%s: ERROR: while revoking credentials: %s", err.Error())
-		} else {
-			log.Printf("%s: successfully revoked credentials.", creds.LeaseID())
-		}
-		cancel()
-	}()
 
 	if *out != "" {
 		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
@@ -61,10 +59,13 @@ func main() {
 
 		t.Execute(file, creds)
 		log.Printf("wrote credentials to %s", file.Name())
-		go vault.Renew(ctx, client, creds, *renew)
 	} else {
 		t.Execute(os.Stdout, creds)
 	}
 
-	<-ctx.Done()
+	go vault.Renew(ctx, client, creds, *renew, *leaseDuration)
+
+	<-c
+	log.Infof("shutting down")
+	cancel()
 }

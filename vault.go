@@ -2,9 +2,12 @@ package vault
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	log "github.com/Sirupsen/logrus"
 	"github.com/cenkalti/backoff"
 	api "github.com/hashicorp/vault/api"
-	"log"
+	"io/ioutil"
 	"time"
 )
 
@@ -18,17 +21,62 @@ func (c *Credentials) LeaseID() string {
 	return c.secret.LeaseID
 }
 
-func Client(address, token string) (*api.Client, error) {
+type TLSConfig struct {
+	CACert     string
+	ServerName string
+}
+
+type vaultToken struct {
+	token string
+}
+
+type login struct {
+	JWT  string `json:"jwt"`
+	Role string `json:"role"`
+}
+
+type authResponse struct {
+}
+
+// Exchanges the kubernetes service account token for a vault token
+func Authenticate(client *api.Client, tokenPath, loginPath, role string) error {
+	bytes, err := ioutil.ReadFile(tokenPath)
+	if err != nil {
+		return fmt.Errorf("error reading token: %s", err)
+	}
+
+	req := client.NewRequest("POST", fmt.Sprintf("/v1/auth/%s", loginPath))
+	req.SetJSONBody(&login{JWT: string(bytes), Role: role})
+	resp, err := client.RawRequest(req)
+	if err != nil {
+		return err
+	}
+
+	if resp.Error() != nil {
+		return resp.Error()
+	}
+
+	var secret api.Secret
+	err = json.NewDecoder(resp.Body).Decode(&secret)
+	if err != nil {
+		return fmt.Errorf("error parsing response: %s", err)
+	}
+
+	log.WithField("policies", secret.Auth.Policies).Infof("authenticated")
+
+	client.SetToken(secret.Auth.ClientToken)
+	return nil
+}
+
+func Client(address string, tls *TLSConfig) (*api.Client, error) {
 	cfg := api.DefaultConfig()
 	cfg.Address = address
-	cfg.ConfigureTLS(&api.TLSConfig{Insecure: true})
+	cfg.ConfigureTLS(&api.TLSConfig{CACert: tls.CACert, TLSServerName: tls.ServerName})
 	client, err := api.NewClient(cfg)
 	if err != nil {
 		return nil, err
 	}
-	if token != "" {
-		client.SetToken(token)
-	}
+
 	return client, nil
 }
 
@@ -42,15 +90,21 @@ func RequestCredentials(client *api.Client, path string) (*Credentials, error) {
 	return &Credentials{secret.Data["username"].(string), secret.Data["password"].(string), secret}, nil
 }
 
+// TODO
+// change extension to be calculated as when the new credentials should expire- which
+// would always be now + horizon (e.g. now + 1hr)
 func renew(client *api.Client, credentials *Credentials, extension time.Duration) error {
-	log.Printf("%s: renewing lease by %s.", credentials.LeaseID(), extension)
+	logger := log.WithField("leaseID", credentials.LeaseID())
+
+	logger.Infof("renewing lease by %s.", extension)
 
 	op := func() error {
 		_, err := client.Sys().Renew(credentials.LeaseID(), int(extension.Seconds()))
 		if err != nil {
+			logger.Errorf("error renewing lease: %s", err)
 			return err
 		}
-		log.Printf("%s: successfully renewed.", credentials.LeaseID())
+		logger.Infof("successfully renewed")
 
 		return nil
 	}
@@ -67,19 +121,16 @@ func renew(client *api.Client, credentials *Credentials, extension time.Duration
 	return nil
 }
 
-func Revoke(client *api.Client, credentials *Credentials) error {
-	return client.Sys().Revoke(credentials.LeaseID())
-}
-
-func Renew(ctx context.Context, client *api.Client, credentials *Credentials, interval time.Duration) {
-	log.Printf("renewing every %s", interval)
+func Renew(ctx context.Context, client *api.Client, credentials *Credentials, interval, lease time.Duration) {
+	log.Printf("renewing %s lease every %s", lease, interval)
 	ticks := time.Tick(interval)
 	for {
 		select {
 		case <-ctx.Done():
+			log.Infof("stopping renewal")
 			return
 		case <-ticks:
-			renew(client, credentials, interval+time.Second*10)
+			renew(client, credentials, lease)
 		}
 	}
 }
