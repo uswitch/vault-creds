@@ -22,8 +22,7 @@ func (c *Credentials) LeaseID() string {
 }
 
 type TLSConfig struct {
-	CACert     string
-	ServerName string
+	CACert string
 }
 
 type vaultToken struct {
@@ -71,7 +70,7 @@ func Authenticate(client *api.Client, tokenPath, loginPath, role string) error {
 func Client(address string, tls *TLSConfig) (*api.Client, error) {
 	cfg := api.DefaultConfig()
 	cfg.Address = address
-	cfg.ConfigureTLS(&api.TLSConfig{CACert: tls.CACert, TLSServerName: tls.ServerName})
+	cfg.ConfigureTLS(&api.TLSConfig{CACert: tls.CACert})
 	client, err := api.NewClient(cfg)
 	if err != nil {
 		return nil, err

@@ -11,17 +11,18 @@ import (
 )
 
 var (
-	vaultAddr           = kingpin.Flag("addr", "Vault address").String()
-	serviceAccountToken = kingpin.Flag("token", "Service account token path").Default("/var/run/secrets/kubernetes.io/serviceaccount/token").String()
+	vaultAddr           = kingpin.Flag("vault-addr", "Vault address, e.g. https://vault:8200").String()
+	serviceAccountToken = kingpin.Flag("token-file", "Service account token path").Default("/var/run/secrets/kubernetes.io/serviceaccount/token").String()
 	loginPath           = kingpin.Flag("login-path", "Vault path to authenticate against").Required().String()
-	role                = kingpin.Flag("role", "Login role").Required().String()
-	path                = kingpin.Flag("path", "Secret path").Required().String()
+	authRole            = kingpin.Flag("auth-role", "Kubernetes authentication role").Required().String()
+	secretPath          = kingpin.Flag("secret-path", "Path to secret in Vault. eg. database/creds/foo").Required().String()
 	caCert              = kingpin.Flag("ca-cert", "Path to CA certificate to validate Vault server").String()
-	tlsHost             = kingpin.Flag("tls-host", "Vault host for SNI TLS").String()
-	templateFile        = kingpin.Flag("template", "Path to template file").ExistingFile()
-	out                 = kingpin.Flag("out", "Output file name").String()
-	renew               = kingpin.Flag("renew", "Interval to renew credentials").Default("1m").Duration()
-	leaseDuration       = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
+
+	templateFile = kingpin.Flag("template", "Path to template file").ExistingFile()
+	out          = kingpin.Flag("out", "Output file name").String()
+
+	renew         = kingpin.Flag("renew", "Interval to renew credentials").Default("1m").Duration()
+	leaseDuration = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
 )
 
 func main() {
@@ -32,16 +33,16 @@ func main() {
 		log.Fatal("error opening template:", err)
 	}
 
-	client, err := vault.Client(*vaultAddr, &vault.TLSConfig{CACert: *caCert, ServerName: *tlsHost})
+	client, err := vault.Client(*vaultAddr, &vault.TLSConfig{CACert: *caCert})
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = vault.Authenticate(client, *serviceAccountToken, *loginPath, *role)
+	err = vault.Authenticate(client, *serviceAccountToken, *loginPath, *authRole)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	creds, err := vault.RequestCredentials(client, *path)
+	creds, err := vault.RequestCredentials(client, *secretPath)
 	if err != nil {
 		log.Fatal(err)
 	}
