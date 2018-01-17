@@ -1,14 +1,5 @@
-build:
-  image: golang:1.8
-  commands:
-    - go build -o bin/vaultcreds cmd/*.go
-
-publish:
-  docker:
-    repo: registry.usw.co/cloud/vault-creds
-    tag:
-      - "$$BUILD_NUMBER"
-      - latest
-    file: Dockerfile
-    storage_driver: overlay
-    insecure: false
+pipeline:
+  build:
+    image: golang:1.9
+    commands:
+      - go build -o bin/vaultcreds cmd/*.go
