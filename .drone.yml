@@ -7,3 +7,14 @@ pipeline:
     image: golang:1.9
     commands:
       - go build -o bin/vaultcreds cmd/*.go
+  
+  docker-latest:
+    image: plugins/docker
+    repo: quay.io/uswitch/vault-creds
+    registry: quay.io
+    secrets: [ docker_username, docker_password ]
+    tags:
+      - latest
+    when:
+      event: push
+      branch: master
