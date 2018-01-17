@@ -1,4 +1,4 @@
-FROM debian:latest
+FROM scratch
 
 ADD bin/vaultcreds /vaultcreds
 
