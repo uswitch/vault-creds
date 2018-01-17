@@ -6,7 +6,7 @@ It implements authentication according to [Vault's Kubernetes Authentication flo
 
 ## Usage
 
-This project is to be deployed in a Pod alongside the main application. When `vault-creds` starts it will request credentials at the path specified and continually renew their lease. As the Pod terminates (and this process is given an interrupt signal) the leased credential will be revoked.
+This project is to be deployed in a Pod alongside the main application. When `vault-creds` starts it will request credentials at the path specified and continually renew their lease. 
 
 For example:
 
