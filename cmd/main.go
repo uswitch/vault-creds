@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	vaultAddr           = kingpin.Flag("addr", "Vault address").Default("https://data-vault.main.vpc.usw.co").String()
+	vaultAddr           = kingpin.Flag("addr", "Vault address").String()
 	serviceAccountToken = kingpin.Flag("token", "Service account token path").Default("/var/run/secrets/kubernetes.io/serviceaccount/token").String()
 	loginPath           = kingpin.Flag("login-path", "Vault path to authenticate against").Required().String()
 	role                = kingpin.Flag("role", "Login role").Required().String()
