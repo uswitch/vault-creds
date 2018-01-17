@@ -13,11 +13,11 @@ For example:
 ```
 $ ./bin/vaultcreds \
   --ca-cert=~/.vaultca \
-  --token=/var/run/secrets/kubernetes.io/serviceaccount/token \
+  --token-file=/var/run/secrets/kubernetes.io/serviceaccount/token \
   --login-path=kubernetes/cluster/login \
-  --role=service_account_role \
+  --auth-role=service_account_role \
   --template=sample.database.yml \
-  --path=database/creds/database_role
+  --secret-path=database/creds/database_role
 INFO[0000] authenticated                                 policies="[default service_account_role]"
 production:
   adapter: postgresql
@@ -28,7 +28,7 @@ production:
 INFO[0000] renewing 1h0m0s lease every 1m0s
 ```
 
-The template is applied to the latest credentials and written to `--out` (in a shared mount for the other containers read).
+The template is applied to the latest credentials and written to `--out` (normally this would be a shared mount for the other containers read).
 
 ## License
 
