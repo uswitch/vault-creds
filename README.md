@@ -1,6 +1,8 @@
 # Vault Creds
 
-Program (and Docker container) to be run as a sidecar to your application- requesting dynamic database credentials that will be leased while the application is active. Intended for use in Kubernetes.
+Program (and Docker container) to be run as a sidecar to your application- requesting dynamic database credentials that will be leased while the application is active. 
+
+It implements authentication according to [Vault's Kubernetes Authentication flow](https://kubernetes.io/docs/admin/authentication/).
 
 ## Usage
 
