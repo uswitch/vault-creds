@@ -1,3 +1,7 @@
+workspace:
+  base: /go
+  path: src/github.com/uswitch/vault-creds
+
 pipeline:
   build:
     image: golang:1.9
