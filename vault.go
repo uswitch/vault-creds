@@ -19,6 +19,10 @@ type CredentialsRenewer interface {
 	Renew(ctx context.Context, creds *Credentials, lease time.Duration) error
 }
 
+type ClientFactory interface {
+	Create() (*api.Client, error)
+}
+
 type DefaultLeaseManager struct {
 	clientFactory ClientFactory
 }
@@ -57,10 +61,6 @@ func (m *DefaultLeaseManager) Renew(ctx context.Context, credentials *Credential
 
 func NewLeaseManager(factory ClientFactory) CredentialsRenewer {
 	return &DefaultLeaseManager{clientFactory: factory}
-}
-
-type ClientFactory interface {
-	Create() (*api.Client, error)
 }
 
 type DefaultCredentialsProvider struct {
