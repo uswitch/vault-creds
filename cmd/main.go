@@ -58,7 +58,9 @@ func main() {
 	}
 
 	factory := vault.NewKubernetesAuthClientFactory(vaultConfig, kubernetesConfig)
-	credsProvider := vault.NewCredentialsProvider(factory, *secretPath)
+	client, authSecret, err := factory.Create()
+
+	credsProvider := vault.NewCredentialsProvider(client, *secretPath)
 	creds, err := credsProvider.Fetch()
 
 	if err != nil {
@@ -66,7 +68,7 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	leaseManager := vault.NewLeaseManager(factory)
+	leaseManager := vault.NewLeaseManager(client)
 
 	go func() {
 		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
@@ -77,9 +79,13 @@ func main() {
 				log.Infof("stopping renewal")
 				return
 			case <-ticks:
-				err := leaseManager.Renew(ctx, creds, *leaseDuration)
+				err := leaseManager.RenewAuthToken(ctx, authSecret.Auth.ClientToken, *leaseDuration)
 				if err != nil {
-					log.Errorf("error renewing credentials: %s", err)
+					log.Errorf("error renewing auth: %s", err)
+				}
+				err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
+				if err != nil {
+					log.Errorf("error renewing db credentials: %s", err)
 				}
 			}
 		}

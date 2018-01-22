@@ -16,70 +16,78 @@ type CredentialsProvider interface {
 }
 
 type CredentialsRenewer interface {
-	Renew(ctx context.Context, creds *Credentials, lease time.Duration) error
+	RenewSecret(ctx context.Context, secret *api.Secret, lease time.Duration) error
+	RenewAuthToken(ctx context.Context, token string, lease time.Duration) error
 }
 
 type ClientFactory interface {
-	Create() (*api.Client, error)
+	Create() (*api.Client, *api.Secret, error)
 }
 
 type DefaultLeaseManager struct {
-	clientFactory ClientFactory
+	client *api.Client
 }
 
-func (m *DefaultLeaseManager) client() (*api.Client, error) {
-	return m.clientFactory.Create()
+func defaultRetryStrategy(max time.Duration) backoff.BackOff {
+	strategy := backoff.NewExponentialBackOff()
+	strategy.InitialInterval = time.Millisecond*500
+	strategy.MaxElapsedTime = max
+	return strategy
 }
 
-func (m *DefaultLeaseManager) Renew(ctx context.Context, credentials *Credentials, lease time.Duration) error {
-	client, err := m.client()
-	if err != nil {
-		return err
-	}
-
-	logger := log.WithField("leaseID", credentials.LeaseID())
-	logger.Infof("renewing lease by %s.", lease)
-
+func (m *DefaultLeaseManager) RenewAuthToken(ctx context.Context, token string, lease time.Duration) error {
 	op := func() error {
-		secret, err := client.Sys().Renew(credentials.LeaseID(), int(lease.Seconds()))
+		secret, err := m.client.Auth().Token().RenewSelf(int(lease.Seconds()))
 		if err != nil {
-			logger.Errorf("error renewing lease: %s", err)
+			log.Errorf("error renewing token: %s", err)
 			return err
 		}
-		logger.WithFields(secretFields(secret)).Infof("successfully renewed")
+		log.WithFields(secretFields(secret)).Infof("successfully renewed auth token")
 
 		return nil
 	}
 
-	config := backoff.NewExponentialBackOff()
-	config.InitialInterval = time.Second * 1
-	config.MaxElapsedTime = lease
-	err = backoff.Retry(op, config)
+	err := backoff.Retry(op, backoff.WithContext(defaultRetryStrategy(lease), ctx))
 
 	return err
 }
 
-func NewLeaseManager(factory ClientFactory) CredentialsRenewer {
-	return &DefaultLeaseManager{clientFactory: factory}
+func (m *DefaultLeaseManager) RenewSecret(ctx context.Context, secret *api.Secret, lease time.Duration) error {
+	logger := log.WithField("leaseID", secret.LeaseID)
+	logger.Infof("renewing lease by %s.", lease)
+
+	op := func() error {
+		secret, err := m.client.Sys().Renew(secret.LeaseID, int(lease.Seconds()))
+		if err != nil {
+			logger.Errorf("error renewing lease: %s", err)
+			return err
+		}
+		logger.WithFields(secretFields(secret)).Infof("successfully renewed secret")
+
+		return nil
+	}
+
+	err := backoff.Retry(op, backoff.WithContext(defaultRetryStrategy(lease), ctx))
+
+	return err
+}
+
+func NewLeaseManager(client *api.Client) CredentialsRenewer {
+	return &DefaultLeaseManager{client: client}
 }
 
 type DefaultCredentialsProvider struct {
-	factory ClientFactory
+	client *api.Client
 	path    string
 }
 
-func NewCredentialsProvider(factory ClientFactory, secretPath string) *DefaultCredentialsProvider {
-	return &DefaultCredentialsProvider{factory: factory, path: secretPath}
+func NewCredentialsProvider(client *api.Client, secretPath string) *DefaultCredentialsProvider {
+	return &DefaultCredentialsProvider{client: client, path: secretPath}
 }
 
 func (c *DefaultCredentialsProvider) Fetch() (*Credentials, error) {
 	log.Infof("requesting credentials")
-	client, err := c.client()
-	if err != nil {
-		return nil, err
-	}
-
-	secret, err := client.Logical().Read(c.path)
+	secret, err := c.client.Logical().Read(c.path)
 	if err != nil {
 		return nil, err
 	}
@@ -89,18 +97,10 @@ func (c *DefaultCredentialsProvider) Fetch() (*Credentials, error) {
 	return &Credentials{secret.Data["username"].(string), secret.Data["password"].(string), secret}, nil
 }
 
-func (c *DefaultCredentialsProvider) client() (*api.Client, error) {
-	return c.factory.Create()
-}
-
 type Credentials struct {
 	Username string
 	Password string
-	secret   *api.Secret
-}
-
-func (c *Credentials) LeaseID() string {
-	return c.secret.LeaseID
+	Secret   *api.Secret
 }
 
 type TLSConfig struct {
@@ -129,18 +129,18 @@ type DefaultVaultClientFactory struct {
 // Create returns a Vault client that has been authenticated
 // with the service account token. It can be used to make other
 // Vault requests
-func (f *DefaultVaultClientFactory) Create() (*api.Client, error) {
+func (f *DefaultVaultClientFactory) Create() (*api.Client, *api.Secret, error) {
 	client, err := f.createUnauthenticatedClient()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	err = f.authenticate(client)
+	secret, err := f.authenticate(client)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return client, nil
+	return client, secret, nil
 }
 
 func (f *DefaultVaultClientFactory) createUnauthenticatedClient() (*api.Client, error) {
@@ -179,34 +179,34 @@ func secretFields(secret *api.Secret) log.Fields {
 }
 
 // Exchanges the kubernetes service account token for a vault token
-func (f *DefaultVaultClientFactory) authenticate(client *api.Client) error {
+func (f *DefaultVaultClientFactory) authenticate(client *api.Client) (*api.Secret, error) {
 	bytes, err := ioutil.ReadFile(f.kube.TokenFile)
 	if err != nil {
-		return fmt.Errorf("error reading token: %s", err)
+		return nil, fmt.Errorf("error reading token: %s", err)
 	}
 
 	req := client.NewRequest("POST", fmt.Sprintf("/v1/auth/%s", f.kube.LoginPath))
 	req.SetJSONBody(&login{JWT: string(bytes), Role: f.kube.Role})
 	resp, err := client.RawRequest(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if resp.Error() != nil {
-		return resp.Error()
+		return nil, resp.Error()
 	}
 
 	var secret api.Secret
 	err = json.NewDecoder(resp.Body).Decode(&secret)
 	if err != nil {
-		return fmt.Errorf("error parsing response: %s", err)
+		return nil, fmt.Errorf("error parsing response: %s", err)
 	}
 
 	logger := log.WithFields(secretFields(&secret))
 	logger.Infof("successfully authenticated")
-
 	client.SetToken(secret.Auth.ClientToken)
-	return nil
+	
+	return &secret, nil
 }
 
 func NewKubernetesAuthClientFactory(vault *VaultConfig, kube *KubernetesAuthConfig) *DefaultVaultClientFactory {
