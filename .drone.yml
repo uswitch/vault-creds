@@ -6,7 +6,7 @@ pipeline:
   build:
     image: golang:1.9
     commands:
-      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/vaultcreds cmd/*.go
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.sha ${DRONE_COMMIT_SHA}" -o bin/vaultcreds cmd/*.go
   
   docker-latest:
     image: plugins/docker

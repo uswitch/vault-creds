@@ -26,7 +26,14 @@ var (
 	leaseDuration = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
 )
 
+var (
+	SHA = ""
+)
+
 func main() {
+	logger := log.WithFields(log.Fields{"gitSHA": SHA})
+	logger.Infof("started application")
+
 	kingpin.Parse()
 
 	t, err := template.ParseFiles(*templateFile)

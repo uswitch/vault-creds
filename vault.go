@@ -41,12 +41,12 @@ func (m *DefaultLeaseManager) Renew(ctx context.Context, credentials *Credential
 	logger.Infof("renewing lease by %s.", lease)
 
 	op := func() error {
-		_, err := client.Sys().Renew(credentials.LeaseID(), int(lease.Seconds()))
+		secret, err := client.Sys().Renew(credentials.LeaseID(), int(lease.Seconds()))
 		if err != nil {
 			logger.Errorf("error renewing lease: %s", err)
 			return err
 		}
-		logger.Infof("successfully renewed")
+		logger.WithFields(secretFields(secret)).Infof("successfully renewed")
 
 		return nil
 	}
@@ -158,6 +158,24 @@ type login struct {
 	Role string `json:"role"`
 }
 
+func secretFields(secret *api.Secret) log.Fields {
+	fields := log.Fields{
+		"requestID":     secret.RequestID,
+		"leaseID":       secret.LeaseID,
+		"renewable":     secret.Renewable,
+		"leaseDuration": secret.LeaseDuration,
+	}
+
+	if secret.Auth != nil {
+		fields["auth.policies"] = secret.Auth.Policies
+		fields["auth.leaseDuration"] = secret.Auth.LeaseDuration
+		fields["auth.renewable"] = secret.Auth.Renewable
+		fields["warnings"] = secret.Warnings
+	}
+
+	return fields
+}
+
 // Exchanges the kubernetes service account token for a vault token
 func (f *DefaultVaultClientFactory) authenticate(client *api.Client) error {
 	bytes, err := ioutil.ReadFile(f.kube.TokenFile)
@@ -182,7 +200,8 @@ func (f *DefaultVaultClientFactory) authenticate(client *api.Client) error {
 		return fmt.Errorf("error parsing response: %s", err)
 	}
 
-	log.WithField("policies", secret.Auth.Policies).Infof("authenticated")
+	logger := log.WithFields(secretFields(&secret))
+	logger.Infof("successfully authenticated")
 
 	client.SetToken(secret.Auth.ClientToken)
 	return nil
