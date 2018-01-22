@@ -84,6 +84,8 @@ func (c *DefaultCredentialsProvider) Fetch() (*Credentials, error) {
 		return nil, err
 	}
 
+	log.WithFields(secretFields(secret)).Infof("succesfully retrieved credentials")
+
 	return &Credentials{secret.Data["username"].(string), secret.Data["password"].(string), secret}, nil
 }
 
