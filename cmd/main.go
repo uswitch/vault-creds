@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"text/template"
+	"time"
 )
 
 var (
@@ -21,7 +22,7 @@ var (
 	templateFile = kingpin.Flag("template", "Path to template file").ExistingFile()
 	out          = kingpin.Flag("out", "Output file name").String()
 
-	renew         = kingpin.Flag("renew", "Interval to renew credentials").Default("1m").Duration()
+	renewInterval = kingpin.Flag("renew-interval", "Interval to renew credentials").Default("15m").Duration()
 	leaseDuration = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
 )
 
@@ -33,21 +34,44 @@ func main() {
 		log.Fatal("error opening template:", err)
 	}
 
-	client, err := vault.Client(*vaultAddr, &vault.TLSConfig{CACert: *caCert})
-	if err != nil {
-		log.Fatal(err)
+	vaultConfig := &vault.VaultConfig{
+		VaultAddr: *vaultAddr,
+		TLS:       &vault.TLSConfig{CACert: *caCert},
 	}
-	err = vault.Authenticate(client, *serviceAccountToken, *loginPath, *authRole)
-	if err != nil {
-		log.Fatal(err)
+	kubernetesConfig := &vault.KubernetesAuthConfig{
+		TokenFile: *serviceAccountToken,
+		LoginPath: *loginPath,
+		Role:      *authRole,
 	}
 
-	creds, err := vault.RequestCredentials(client, *secretPath)
+	factory := vault.NewKubernetesAuthClientFactory(vaultConfig, kubernetesConfig)
+	credsProvider := vault.NewCredentialsProvider(factory, *secretPath)
+	creds, err := credsProvider.Fetch()
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	leaseManager := vault.NewLeaseManager(factory)
+
+	go func() {
+		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
+		ticks := time.Tick(*renewInterval)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Infof("stopping renewal")
+				return
+			case <-ticks:
+				err := leaseManager.Renew(ctx, creds, *leaseDuration)
+				if err != nil {
+					log.Errorf("error renewing credentials: %s", err)
+				}
+			}
+		}
+	}()
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
@@ -63,8 +87,6 @@ func main() {
 	} else {
 		t.Execute(os.Stdout, creds)
 	}
-
-	go vault.Renew(ctx, client, creds, *renew, *leaseDuration)
 
 	<-c
 	log.Infof("shutting down")
