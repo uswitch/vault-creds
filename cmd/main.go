@@ -24,6 +24,8 @@ var (
 
 	renewInterval = kingpin.Flag("renew-interval", "Interval to renew credentials").Default("15m").Duration()
 	leaseDuration = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
+
+	jsonOutput = kingpin.Flag("json-log", "Output log in JSON format").Default("false").Bool()
 )
 
 var (
@@ -31,10 +33,14 @@ var (
 )
 
 func main() {
+	kingpin.Parse()
+
+	if *jsonOutput {
+		log.SetFormatter(&log.JSONFormatter{})
+	}
+
 	logger := log.WithFields(log.Fields{"gitSHA": SHA})
 	logger.Infof("started application")
-
-	kingpin.Parse()
 
 	t, err := template.ParseFiles(*templateFile)
 	if err != nil {
