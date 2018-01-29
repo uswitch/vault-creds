@@ -59,6 +59,9 @@ func main() {
 
 	factory := vault.NewKubernetesAuthClientFactory(vaultConfig, kubernetesConfig)
 	client, authSecret, err := factory.Create()
+	if err != nil {
+		log.Fatal("error creating client:", err)
+	}
 
 	credsProvider := vault.NewCredentialsProvider(client, *secretPath)
 	creds, err := credsProvider.Fetch()
