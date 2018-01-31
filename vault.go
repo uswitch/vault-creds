@@ -39,7 +39,6 @@ func (m *DefaultLeaseManager) RenewAuthToken(ctx context.Context, token string, 
 	op := func() error {
 		secret, err := m.client.Auth().Token().RenewSelf(int(lease.Seconds()))
 		if err != nil {
-			log.Errorf("error renewing token: %s", err)
 			return err
 		}
 		log.WithFields(secretFields(secret)).Infof("successfully renewed auth token")
@@ -59,7 +58,6 @@ func (m *DefaultLeaseManager) RenewSecret(ctx context.Context, secret *api.Secre
 	op := func() error {
 		secret, err := m.client.Sys().Renew(secret.LeaseID, int(lease.Seconds()))
 		if err != nil {
-			logger.Errorf("error renewing lease: %s", err)
 			return err
 		}
 		logger.WithFields(secretFields(secret)).Infof("successfully renewed secret")
