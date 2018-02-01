@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	log "github.com/Sirupsen/logrus"
-	vault "github.com/uswitch/vault-creds"
-	"gopkg.in/alecthomas/kingpin.v2"
 	"os"
 	"os/signal"
 	"text/template"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+	vault "github.com/uswitch/k8s-creds-provider/vault"
+	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 var (
@@ -86,7 +87,7 @@ func main() {
 				if err != nil {
 					log.Errorf("error renewing auth: %s", err)
 				}
-				err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
+				err = leaseManager.RenewSecret(ctx, &creds.Secret, *leaseDuration)
 				if err != nil {
 					log.Errorf("error renewing db credentials: %s", err)
 				}
