@@ -98,7 +98,7 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 
 	if *out != "" {
-		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 		if err != nil {
 			log.Fatal(err)
 		}
