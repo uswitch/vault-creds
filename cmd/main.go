@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	log "github.com/Sirupsen/logrus"
-	vault "github.com/uswitch/vault-creds"
-	"gopkg.in/alecthomas/kingpin.v2"
 	"os"
 	"os/signal"
 	"text/template"
-	"time"
+
+	log "github.com/Sirupsen/logrus"
+	vault "github.com/uswitch/k8s-creds-provider/vault"
+	"gopkg.in/alecthomas/kingpin.v2"
 )
 
 var (
@@ -72,25 +72,13 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	leaseManager := vault.NewLeaseManager(client)
+	errChan := make(chan error, 1)
+	go leaseManager.Run(ctx, authSecret.Auth.ClientToken, &creds.Secret, *leaseDuration, *renewInterval, errChan)
 
 	go func() {
-		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
-		ticks := time.Tick(*renewInterval)
 		for {
-			select {
-			case <-ctx.Done():
-				log.Infof("stopping renewal")
-				return
-			case <-ticks:
-				err := leaseManager.RenewAuthToken(ctx, authSecret.Auth.ClientToken, *leaseDuration)
-				if err != nil {
-					log.Errorf("error renewing auth: %s", err)
-				}
-				err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
-				if err != nil {
-					log.Errorf("error renewing db credentials: %s", err)
-				}
-			}
+			err := <-errChan
+			log.Errorf("error renewing auth: %s", err)
 		}
 	}()
 
