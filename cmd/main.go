@@ -27,7 +27,7 @@ var (
 
 	jsonOutput = kingpin.Flag("json-log", "Output log in JSON format").Default("false").Bool()
 
-	completedPath = kingpin.Flag("completed-path", "Path where a 'completion' file will be dropped").Default("/tmp/completed").String()
+	completedPath = kingpin.Flag("completed-path", "Path where a 'completion' file will be dropped").Default("/tmp/vault-creds/completed").String()
 )
 
 var (
