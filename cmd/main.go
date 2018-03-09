@@ -26,6 +26,8 @@ var (
 	leaseDuration = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
 
 	jsonOutput = kingpin.Flag("json-log", "Output log in JSON format").Default("false").Bool()
+
+	completedPath = kingpin.Flag("completed-path", "Path where a 'completion' file will be dropped").Default("/tmp/vault-creds/completed").String()
 )
 
 var (
@@ -73,6 +75,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	leaseManager := vault.NewLeaseManager(client)
 
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+
 	go func() {
 		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
 		ticks := time.Tick(*renewInterval)
@@ -90,12 +95,14 @@ func main() {
 				if err != nil {
 					log.Errorf("error renewing db credentials: %s", err)
 				}
+			default:
+				if _, err := os.Stat(*completedPath); err == nil {
+					log.Infof("received completion signal")
+					c <- os.Interrupt
+				}
 			}
 		}
 	}()
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
 
 	if *out != "" {
 		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
