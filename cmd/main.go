@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
-	log "github.com/Sirupsen/logrus"
-	vault "github.com/uswitch/vault-creds"
-	"gopkg.in/alecthomas/kingpin.v2"
 	"os"
 	"os/signal"
 	"text/template"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
+	"github.com/uswitch/vault-creds/pkg/kube"
+	"github.com/uswitch/vault-creds/pkg/vault"
+	"gopkg.in/alecthomas/kingpin.v2"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 var (
@@ -28,11 +32,25 @@ var (
 	jsonOutput = kingpin.Flag("json-log", "Output log in JSON format").Default("false").Bool()
 
 	completedPath = kingpin.Flag("completed-path", "Path where a 'completion' file will be dropped").Default("/tmp/vault-creds/completed").String()
+	job           = kingpin.Flag("job", "Whether to run in cronjob mode").Default("false").Bool()
+)
+
+var (
+	namespace = os.Getenv("NAMESPACE")
+	podName   = os.Getenv("POD_NAME")
 )
 
 var (
 	SHA = ""
 )
+
+func createClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
+	c, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
 
 func main() {
 	kingpin.Parse()
@@ -72,6 +90,16 @@ func main() {
 		log.Fatal(err)
 	}
 
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		log.Fatalf("error creating kube client config: %s", err)
+	}
+
+	clientSet, err := createClientSet(config)
+	if err != nil {
+		log.Fatalf("error creating kube client: %s", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	leaseManager := vault.NewLeaseManager(client)
 
@@ -81,6 +109,10 @@ func main() {
 	go func() {
 		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
 		ticks := time.Tick(*renewInterval)
+		var status <-chan time.Time
+		if *job {
+			status = time.Tick(5)
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -94,6 +126,18 @@ func main() {
 				err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
 				if err != nil {
 					log.Errorf("error renewing db credentials: %s", err)
+				}
+			case <-status:
+				status, err := kube.CheckStatus(clientSet, namespace, podName)
+				if err != nil {
+					log.Errorf("error getting pod status: %s", err)
+				}
+				if status == "Error" {
+					log.Fatal("primary container has errored, shutting down")
+				}
+				if status == "Completed" {
+					log.Infof("received completion signal")
+					c <- os.Interrupt
 				}
 			default:
 				if _, err := os.Stat(*completedPath); err == nil {
