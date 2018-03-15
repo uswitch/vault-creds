@@ -1,12 +1,12 @@
 # Vault Creds
 
-Program (and Docker container) to be run as a sidecar to your application- requesting dynamic database credentials that will be leased while the application is active. 
+Program (and Docker container) to be run as a sidecar to your application- requesting dynamic database credentials that will be leased while the application is active.
 
 It implements authentication according to [Vault's Kubernetes Authentication flow](https://kubernetes.io/docs/admin/authentication/).
 
 ## Usage
 
-This project is to be deployed in a Pod alongside the main application. When `vault-creds` starts it will request credentials at the path specified and continually renew their lease. 
+This project is to be deployed in a Pod alongside the main application. When `vault-creds` starts it will request credentials at the path specified and continually renew their lease.
 
 For example:
 
@@ -29,6 +29,28 @@ INFO[0000] renewing 1h0m0s lease every 1m0s
 ```
 
 The template is applied to the latest credentials and written to `--out` (normally this would be a shared mount for the other containers read).
+
+## Job Mode
+
+Kubernetes doesn't handle sidecars in cronjobs/jobs very well as it has no understanding of the difference between the primary container and the sidecar, this means that if your primary process errors/completes the job will continue to run as the vault-creds sidecar will still be running.
+
+To get around this you can run the sidecar with `--job` flag which will cause the vault-creds sidecar to watch the status of the other containers in the pod. If they error the vault-creds container will exit 1, if they complete the container will exit 0 thus getting around the sidecar problem.
+
+To make this work you need to add the pod name and namespaces as env vars to the vault-creds container.
+
+```
+env:
+- name: NAMESPACE
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.namespace
+- name: POD_NAME
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.name
+```
+
+Also ensure that the service account you use has permission to `GET` pods in its own namespace.
 
 ## License
 
