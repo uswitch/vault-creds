@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"syscall"
 	"text/template"
 	"time"
 
@@ -105,6 +106,7 @@ func main() {
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, syscall.SIGTERM)
 
 	go func() {
 		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
