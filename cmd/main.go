@@ -34,6 +34,7 @@ var (
 
 	completedPath = kingpin.Flag("completed-path", "Path where a 'completion' file will be dropped").Default("/tmp/vault-creds/completed").String()
 	job           = kingpin.Flag("job", "Whether to run in cronjob mode").Default("false").Bool()
+	initMode      = kingpin.Flag("init", "write out credentials but do not renew").Default("false").Bool()
 )
 
 var (
@@ -108,47 +109,49 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	signal.Notify(c, syscall.SIGTERM)
 
-	go func() {
-		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
-		ticks := time.Tick(*renewInterval)
-		var status <-chan time.Time
-		if *job {
-			status = time.Tick(5)
-		}
-		for {
-			select {
-			case <-ctx.Done():
-				log.Infof("stopping renewal")
-				return
-			case <-ticks:
-				err := leaseManager.RenewAuthToken(ctx, authSecret.Auth.ClientToken, *leaseDuration)
-				if err != nil {
-					log.Errorf("error renewing auth: %s", err)
-				}
-				err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
-				if err != nil {
-					log.Errorf("error renewing db credentials: %s", err)
-				}
-			case <-status:
-				status, err := kube.CheckStatus(clientSet, namespace, podName)
-				if err != nil {
-					log.Errorf("error getting pod status: %s", err)
-				}
-				if status == "Error" {
-					log.Fatal("primary container has errored, shutting down")
-				}
-				if status == "Completed" {
-					log.Infof("received completion signal")
-					c <- os.Interrupt
-				}
-			default:
-				if _, err := os.Stat(*completedPath); err == nil {
-					log.Infof("received completion signal")
-					c <- os.Interrupt
+	if !*initMode {
+		go func() {
+			log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
+			ticks := time.Tick(*renewInterval)
+			var status <-chan time.Time
+			if *job {
+				status = time.Tick(5)
+			}
+			for {
+				select {
+				case <-ctx.Done():
+					log.Infof("stopping renewal")
+					return
+				case <-ticks:
+					err := leaseManager.RenewAuthToken(ctx, authSecret.Auth.ClientToken, *leaseDuration)
+					if err != nil {
+						log.Errorf("error renewing auth: %s", err)
+					}
+					err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
+					if err != nil {
+						log.Errorf("error renewing db credentials: %s", err)
+					}
+				case <-status:
+					status, err := kube.CheckStatus(clientSet, namespace, podName)
+					if err != nil {
+						log.Errorf("error getting pod status: %s", err)
+					}
+					if status == "Error" {
+						log.Fatal("primary container has errored, shutting down")
+					}
+					if status == "Completed" {
+						log.Infof("received completion signal")
+						c <- os.Interrupt
+					}
+				default:
+					if _, err := os.Stat(*completedPath); err == nil {
+						log.Infof("received completion signal")
+						c <- os.Interrupt
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	if *out != "" {
 		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
@@ -159,6 +162,10 @@ func main() {
 
 		t.Execute(file, creds)
 		log.Printf("wrote credentials to %s", file.Name())
+		if *initMode {
+			log.Infof("completed init")
+			c <- os.Interrupt
+		}
 	} else {
 		t.Execute(os.Stdout, creds)
 	}
