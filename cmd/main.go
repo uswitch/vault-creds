@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 	"github.com/uswitch/vault-creds/pkg/kube"
 	"github.com/uswitch/vault-creds/pkg/vault"
 	"gopkg.in/alecthomas/kingpin.v2"
+	yaml "gopkg.in/yaml.v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -38,8 +40,9 @@ var (
 )
 
 var (
-	namespace = os.Getenv("NAMESPACE")
-	podName   = os.Getenv("POD_NAME")
+	namespace  = os.Getenv("NAMESPACE")
+	podName    = os.Getenv("POD_NAME")
+	leaseExist = false
 )
 
 var (
@@ -79,6 +82,11 @@ func main() {
 		Role:      *authRole,
 	}
 
+	leasePath := *out + ".lease"
+	if _, err = os.Stat(leasePath); err == nil {
+		leaseExist = true
+	}
+
 	factory := vault.NewKubernetesAuthClientFactory(vaultConfig, kubernetesConfig)
 	client, authSecret, err := factory.Create()
 	if err != nil {
@@ -86,10 +94,27 @@ func main() {
 	}
 
 	credsProvider := vault.NewCredentialsProvider(client, *secretPath)
-	creds, err := credsProvider.Fetch()
 
-	if err != nil {
-		log.Fatal(err)
+	var creds *vault.Credentials
+
+	// if there's already a lease, use that and don't generate new credentials
+	if leaseExist {
+		log.Infof("detected existing lease")
+		bytes, err := ioutil.ReadFile(leasePath)
+		if err != nil {
+			log.Fatal("error reading lease:", err)
+		}
+
+		err = yaml.Unmarshal(bytes, &creds)
+		if err != nil {
+			log.Fatal("error unmarshalling lease")
+		}
+
+	} else {
+		creds, err = credsProvider.Fetch()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	config, err := rest.InClusterConfig()
@@ -109,51 +134,49 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	signal.Notify(c, syscall.SIGTERM)
 
-	if !*initMode {
-		go func() {
-			log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
-			ticks := time.Tick(*renewInterval)
-			var status <-chan time.Time
-			if *job {
-				status = time.Tick(5)
-			}
-			for {
-				select {
-				case <-ctx.Done():
-					log.Infof("stopping renewal")
-					return
-				case <-ticks:
-					err := leaseManager.RenewAuthToken(ctx, authSecret.Auth.ClientToken, *leaseDuration)
-					if err != nil {
-						log.Errorf("error renewing auth: %s", err)
-					}
-					err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
-					if err != nil {
-						log.Errorf("error renewing db credentials: %s", err)
-					}
-				case <-status:
-					status, err := kube.CheckStatus(clientSet, namespace, podName)
-					if err != nil {
-						log.Errorf("error getting pod status: %s", err)
-					}
-					if status == "Error" {
-						log.Fatal("primary container has errored, shutting down")
-					}
-					if status == "Completed" {
-						log.Infof("received completion signal")
-						c <- os.Interrupt
-					}
-				default:
-					if _, err := os.Stat(*completedPath); err == nil {
-						log.Infof("received completion signal")
-						c <- os.Interrupt
-					}
+	go func() {
+		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
+		ticks := time.Tick(*renewInterval)
+		var status <-chan time.Time
+		if *job {
+			status = time.Tick(5)
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				log.Infof("stopping renewal")
+				return
+			case <-ticks:
+				err := leaseManager.RenewAuthToken(ctx, authSecret.Auth.ClientToken, *leaseDuration)
+				if err != nil {
+					log.Errorf("error renewing auth: %s", err)
+				}
+				err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
+				if err != nil {
+					log.Errorf("error renewing db credentials: %s", err)
+				}
+			case <-status:
+				status, err := kube.CheckStatus(clientSet, namespace, podName)
+				if err != nil {
+					log.Errorf("error getting pod status: %s", err)
+				}
+				if status == "Error" {
+					log.Fatal("primary container has errored, shutting down")
+				}
+				if status == "Completed" {
+					log.Infof("received completion signal")
+					c <- os.Interrupt
+				}
+			default:
+				if _, err := os.Stat(*completedPath); err == nil {
+					log.Infof("received completion signal")
+					c <- os.Interrupt
 				}
 			}
-		}()
-	}
+		}
+	}()
 
-	if *out != "" {
+	if *out != "" && !leaseExist {
 		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 		if err != nil {
 			log.Fatal(err)
@@ -162,11 +185,22 @@ func main() {
 
 		t.Execute(file, creds)
 		log.Printf("wrote credentials to %s", file.Name())
+
+		bytes, err := yaml.Marshal(creds)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		//write out full secret
+		ioutil.WriteFile(leasePath, bytes, 0600)
+
+		log.Printf("wrote lease to %s", leasePath)
+
 		if *initMode {
 			log.Infof("completed init")
 			c <- os.Interrupt
 		}
-	} else {
+	} else if !leaseExist {
 		t.Execute(os.Stdout, creds)
 	}
 
