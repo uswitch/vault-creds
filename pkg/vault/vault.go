@@ -142,8 +142,7 @@ func (f *DefaultVaultClientFactory) Create(tokenPath string) (*api.Client, *api.
 
 	//If the token file exists read that instead of generating a new auth token
 	if _, err = os.Stat(tokenPath); err == nil {
-
-		log.Info("detected existing vault Token, using that")
+		log.Info("detected existing vault token, using that")
 		secret, err = f.authRead(client, tokenPath)
 		if err != nil {
 			return nil, nil, err

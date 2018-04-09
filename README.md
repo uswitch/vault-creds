@@ -30,6 +30,12 @@ INFO[0000] renewing 1h0m0s lease every 1m0s
 
 The template is applied to the latest credentials and written to `--out` (normally this would be a shared mount for the other containers read).
 
+## Init Mode
+
+If you run the container with the `--init` flag it will generate the database credentials and then exit allowing it to be used as an Init Container.
+Vault-creds will also write out the lease and auth info to a file in the same directory as your database credentials, if a new Vault-creds container starts up it can read these and use them to renew your lease.
+This means that you can have an init container generate your creds and then have a sidecar renew your credentials for you. Thus ensuring the credentials exist before your app starts up.
+
 ## Job Mode
 
 Kubernetes doesn't handle sidecars in cronjobs/jobs very well as it has no understanding of the difference between the primary container and the sidecar, this means that if your primary process errors/completes the job will continue to run as the vault-creds sidecar will still be running.
