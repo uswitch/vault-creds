@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/cenkalti/backoff"
 	api "github.com/hashicorp/vault/api"
+	yaml "gopkg.in/yaml.v1"
 )
 
 type CredentialsProvider interface {
@@ -130,15 +132,27 @@ type DefaultVaultClientFactory struct {
 // Create returns a Vault client that has been authenticated
 // with the service account token. It can be used to make other
 // Vault requests
-func (f *DefaultVaultClientFactory) Create() (*api.Client, *api.Secret, error) {
+func (f *DefaultVaultClientFactory) Create(tokenPath string) (*api.Client, *api.Secret, error) {
 	client, err := f.createUnauthenticatedClient()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	secret, err := f.authenticate(client)
-	if err != nil {
-		return nil, nil, err
+	var secret *api.Secret
+
+	//If the token file exists read that instead of generating a new auth token
+	if _, err = os.Stat(tokenPath); err == nil {
+
+		log.Info("detected existing vault Token, using that")
+		secret, err = f.authRead(client, tokenPath)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		secret, err = f.authenticate(client)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return client, secret, nil
@@ -205,6 +219,25 @@ func (f *DefaultVaultClientFactory) authenticate(client *api.Client) (*api.Secre
 
 	logger := log.WithFields(secretFields(&secret))
 	logger.Infof("successfully authenticated")
+	client.SetToken(secret.Auth.ClientToken)
+
+	return &secret, nil
+}
+
+func (f *DefaultVaultClientFactory) authRead(client *api.Client, tokenPath string) (*api.Secret, error) {
+
+	var secret api.Secret
+
+	bytes, err := ioutil.ReadFile(tokenPath)
+	if err != nil {
+		log.Fatal("error reading token:", err)
+	}
+
+	err = yaml.Unmarshal(bytes, &secret)
+	if err != nil {
+		log.Fatal("error unmarshalling token")
+	}
+
 	client.SetToken(secret.Auth.ClientToken)
 
 	return &secret, nil

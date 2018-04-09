@@ -83,12 +83,13 @@ func main() {
 	}
 
 	leasePath := *out + ".lease"
+	tokenPath := *out + ".token"
 	if _, err = os.Stat(leasePath); err == nil {
 		leaseExist = true
 	}
 
 	factory := vault.NewKubernetesAuthClientFactory(vaultConfig, kubernetesConfig)
-	client, authSecret, err := factory.Create()
+	client, authSecret, err := factory.Create(tokenPath)
 	if err != nil {
 		log.Fatal("error creating client:", err)
 	}
@@ -186,12 +187,22 @@ func main() {
 		t.Execute(file, creds)
 		log.Printf("wrote credentials to %s", file.Name())
 
+		//write out token
+		tokenBytes, err := yaml.Marshal(authSecret)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		ioutil.WriteFile(tokenPath, tokenBytes, 0600)
+
+		log.Printf("wrote token to %s", tokenPath)
+
+		//write out full secret
 		bytes, err := yaml.Marshal(creds)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		//write out full secret
 		ioutil.WriteFile(leasePath, bytes, 0600)
 
 		log.Printf("wrote lease to %s", leasePath)
