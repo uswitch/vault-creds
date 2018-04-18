@@ -137,7 +137,8 @@ func main() {
 
 	go func() {
 		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
-		ticks := time.Tick(*renewInterval)
+		renewTicks := time.Tick(*renewInterval)
+		jobCompletionTicks := time.Tick(10 * time.Second)
 		var status <-chan time.Time
 		if *job {
 			status = time.Tick(5)
@@ -147,7 +148,7 @@ func main() {
 			case <-ctx.Done():
 				log.Infof("stopping renewal")
 				return
-			case <-ticks:
+			case <-renewTicks:
 				err := leaseManager.RenewAuthToken(ctx, authSecret.Auth.ClientToken, *leaseDuration)
 				if err != nil {
 					log.Errorf("error renewing auth: %s", err)
@@ -168,7 +169,7 @@ func main() {
 					log.Infof("received completion signal")
 					c <- os.Interrupt
 				}
-			default:
+			case <-jobCompletionTicks:
 				if _, err := os.Stat(*completedPath); err == nil {
 					log.Infof("received completion signal")
 					c <- os.Interrupt
