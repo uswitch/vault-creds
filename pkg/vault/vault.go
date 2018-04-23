@@ -21,6 +21,7 @@ type CredentialsProvider interface {
 type CredentialsRenewer interface {
 	RenewSecret(ctx context.Context, secret *api.Secret, lease time.Duration) error
 	RenewAuthToken(ctx context.Context, token string, lease time.Duration) error
+	RevokeSelf(ctx context.Context, token string)
 }
 
 type ClientFactory interface {
@@ -53,6 +54,18 @@ func (m *DefaultLeaseManager) RenewAuthToken(ctx context.Context, token string, 
 	err := backoff.Retry(op, backoff.WithContext(defaultRetryStrategy(lease), ctx))
 
 	return err
+}
+
+//RevokeSelf this will attempt to revoke it's own token
+func (m *DefaultLeaseManager) RevokeSelf(ctx context.Context, token string) {
+
+	err := m.client.Auth().Token().RevokeSelf(token)
+	if err != nil {
+		log.Errorf("failed to revoke self: %s", err)
+	} else {
+		log.Infof("revoked own token")
+	}
+
 }
 
 func (m *DefaultLeaseManager) RenewSecret(ctx context.Context, secret *api.Secret, lease time.Duration) error {

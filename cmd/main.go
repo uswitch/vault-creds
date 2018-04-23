@@ -217,6 +217,9 @@ func main() {
 	}
 
 	<-c
+	if !*initMode {
+		leaseManager.RevokeSelf(ctx, authSecret.Auth.ClientToken)
+	}
 	log.Infof("shutting down")
 	cancel()
 }
