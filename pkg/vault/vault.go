@@ -56,7 +56,7 @@ func (m *DefaultLeaseManager) RenewAuthToken(ctx context.Context, token string, 
 	return err
 }
 
-//RevokeSelf this will attempt to revoke it's own token
+//RevokeSelf this will attempt to revoke its own token
 func (m *DefaultLeaseManager) RevokeSelf(ctx context.Context, token string) {
 
 	err := m.client.Auth().Token().RevokeSelf(token)
