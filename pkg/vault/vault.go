@@ -3,9 +3,11 @@ package vault
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -13,6 +15,8 @@ import (
 	api "github.com/hashicorp/vault/api"
 	yaml "gopkg.in/yaml.v1"
 )
+
+var ErrPermissionDenied = errors.New("permission denied")
 
 type CredentialsProvider interface {
 	Fetch() (*Credentials, error)
@@ -44,6 +48,9 @@ func (m *DefaultLeaseManager) RenewAuthToken(ctx context.Context, token string, 
 		secret, err := m.client.Auth().Token().RenewSelf(int(lease.Seconds()))
 		if err != nil {
 			log.Errorf("error renewing token: %s", err)
+			if checkPermissionDenied(err) {
+				return backoff.Permanent(ErrPermissionDenied)
+			}
 			return err
 		}
 		log.WithFields(secretFields(secret)).Infof("successfully renewed auth token")
@@ -76,6 +83,9 @@ func (m *DefaultLeaseManager) RenewSecret(ctx context.Context, secret *api.Secre
 		secret, err := m.client.Sys().Renew(secret.LeaseID, int(lease.Seconds()))
 		if err != nil {
 			logger.Errorf("error renewing lease: %s", err)
+			if checkPermissionDenied(err) {
+				return backoff.Permanent(ErrPermissionDenied)
+			}
 			return err
 		}
 		logger.WithFields(secretFields(secret)).Infof("successfully renewed secret")
@@ -257,4 +267,12 @@ func (f *DefaultVaultClientFactory) authRead(client *api.Client, tokenPath strin
 
 func NewKubernetesAuthClientFactory(vault *VaultConfig, kube *KubernetesAuthConfig) *DefaultVaultClientFactory {
 	return &DefaultVaultClientFactory{vault: vault, kube: kube}
+}
+
+func checkPermissionDenied(err error) bool {
+	errorString := fmt.Sprintf("%s", err)
+	if strings.Contains(errorString, "Code: 403") {
+		return true
+	}
+	return false
 }
