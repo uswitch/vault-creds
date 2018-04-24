@@ -57,6 +57,21 @@ func createClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
 	return c, nil
 }
 
+//This removes the lease and token files in the event of them being expired
+func cleanUp(leasePath, tokenPath string) {
+	log.Infof("deleting lease and credentials")
+
+	err := os.Remove(leasePath)
+	if err != nil {
+		log.Errorf("failed to remove lease: %s", err)
+	}
+
+	err = os.Remove(tokenPath)
+	if err != nil {
+		log.Errorf("failed to remove token: %s", err)
+	}
+}
+
 func main() {
 	kingpin.Parse()
 
@@ -153,9 +168,17 @@ func main() {
 				if err != nil {
 					log.Errorf("error renewing auth: %s", err)
 				}
+				if err == vault.ErrPermissionDenied {
+					cleanUp(leasePath, tokenPath)
+					log.Fatal("auth token could no longer be renewed")
+				}
 				err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
 				if err != nil {
 					log.Errorf("error renewing db credentials: %s", err)
+				}
+				if err == vault.ErrPermissionDenied {
+					cleanUp(leasePath, tokenPath)
+					log.Fatal("credentials could no longer be renewed")
 				}
 			case <-status:
 				status, err := kube.CheckStatus(clientSet, namespace, podName)
