@@ -168,7 +168,7 @@ func main() {
 				if err != nil {
 					log.Errorf("error renewing auth: %s", err)
 				}
-				if err == vault.ErrPermissionDenied {
+				if err == vault.ErrPermissionDenied || err == vault.ErrLeaseNotFound {
 					cleanUp(leasePath, tokenPath)
 					log.Fatal("auth token could no longer be renewed")
 				}
@@ -176,7 +176,7 @@ func main() {
 				if err != nil {
 					log.Errorf("error renewing db credentials: %s", err)
 				}
-				if err == vault.ErrPermissionDenied {
+				if err == vault.ErrPermissionDenied || err == vault.ErrLeaseNotFound {
 					cleanUp(leasePath, tokenPath)
 					log.Fatal("credentials could no longer be renewed")
 				}
