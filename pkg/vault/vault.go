@@ -17,6 +17,7 @@ import (
 )
 
 var ErrPermissionDenied = errors.New("permission denied")
+var ErrLeaseNotFound = errors.New("lease not found or is not renewable")
 
 type CredentialsProvider interface {
 	Fetch() (*Credentials, error)
@@ -48,8 +49,9 @@ func (m *DefaultLeaseManager) RenewAuthToken(ctx context.Context, token string, 
 		secret, err := m.client.Auth().Token().RenewSelf(int(lease.Seconds()))
 		if err != nil {
 			log.Errorf("error renewing token: %s", err)
-			if checkPermissionDenied(err) {
-				return backoff.Permanent(ErrPermissionDenied)
+			fatalError := checkFatalError(err)
+			if fatalError != nil {
+				return backoff.Permanent(fatalError)
 			}
 			return err
 		}
@@ -83,8 +85,9 @@ func (m *DefaultLeaseManager) RenewSecret(ctx context.Context, secret *api.Secre
 		secret, err := m.client.Sys().Renew(secret.LeaseID, int(lease.Seconds()))
 		if err != nil {
 			logger.Errorf("error renewing lease: %s", err)
-			if checkPermissionDenied(err) {
-				return backoff.Permanent(ErrPermissionDenied)
+			fatalError := checkFatalError(err)
+			if fatalError != nil {
+				return backoff.Permanent(fatalError)
 			}
 			return err
 		}
@@ -269,10 +272,13 @@ func NewKubernetesAuthClientFactory(vault *VaultConfig, kube *KubernetesAuthConf
 	return &DefaultVaultClientFactory{vault: vault, kube: kube}
 }
 
-func checkPermissionDenied(err error) bool {
+func checkFatalError(err error) error {
 	errorString := fmt.Sprintf("%s", err)
 	if strings.Contains(errorString, "Code: 403") {
-		return true
+		return ErrPermissionDenied
 	}
-	return false
+	if strings.Contains(errorString, "lease not found or lease is not renewable") {
+		return ErrLeaseNotFound
+	}
+	return nil
 }
