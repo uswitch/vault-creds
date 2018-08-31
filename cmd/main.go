@@ -156,7 +156,7 @@ func main() {
 		jobCompletionTicks := time.Tick(10 * time.Second)
 		var status <-chan time.Time
 		if *job {
-			status = time.Tick(5)
+			status = time.Tick(5 * time.Second)
 		}
 		for {
 			select {
