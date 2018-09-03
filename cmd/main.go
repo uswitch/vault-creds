@@ -103,6 +103,11 @@ func main() {
 		leaseExist = true
 	}
 
+	if leaseExist && *initMode {
+		cleanUp(leasePath, tokenPath)
+		log.Fatal("lease detected while in init mode, shutting down and cleaning up")
+	}
+
 	factory := vault.NewKubernetesAuthClientFactory(vaultConfig, kubernetesConfig)
 	client, authSecret, err := factory.Create(tokenPath)
 	if err != nil {
