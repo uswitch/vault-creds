@@ -210,12 +210,9 @@ func main() {
 	if *out != "" && !leaseExist {
 		// Ensure directory for destination file exists
 		destinationDirectory := filepath.Dir(*out)
-		if _, err := os.Stat(destinationDirectory); os.IsNotExist(err) {
-			log.Infof("Target directory '%s' does not exist; creating it", destinationDirectory)
-			err := os.MkdirAll(destinationDirectory, 0666)
-			if err != nil {
-				log.Fatal(err)
-			}
+		err := os.MkdirAll(destinationDirectory, 0666)
+		if err != nil {
+			log.Fatal(err)
 		}
 
 		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
