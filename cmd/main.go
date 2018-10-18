@@ -10,6 +10,7 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	vaultApi "github.com/hashicorp/vault/api"
 	"github.com/uswitch/vault-creds/pkg/kube"
 	"github.com/uswitch/vault-creds/pkg/vault"
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -116,7 +117,7 @@ func main() {
 
 	credsProvider := vault.NewCredentialsProvider(client, *secretPath)
 
-	var creds *vault.Credentials
+	var creds *vaultApi.Secret
 
 	// if there's already a lease, use that and don't generate new credentials
 	if leaseExist {
@@ -177,7 +178,7 @@ func main() {
 					cleanUp(leasePath, tokenPath)
 					log.Fatal("auth token could no longer be renewed")
 				}
-				err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
+				err = leaseManager.RenewSecret(ctx, creds, *leaseDuration)
 				if err != nil {
 					log.Errorf("error renewing db credentials: %s", err)
 				}
@@ -213,7 +214,7 @@ func main() {
 		}
 		defer file.Close()
 
-		t.Execute(file, creds)
+		t.Execute(file, creds.Data)
 		log.Printf("wrote credentials to %s", file.Name())
 
 		//write out token
@@ -227,7 +228,7 @@ func main() {
 		log.Printf("wrote token to %s", tokenPath)
 
 		//write out full secret
-		bytes, err := yaml.Marshal(creds)
+		bytes, err := yaml.Marshal(creds.Data)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -241,7 +242,7 @@ func main() {
 			c <- os.Interrupt
 		}
 	} else if !leaseExist {
-		t.Execute(os.Stdout, creds)
+		t.Execute(os.Stdout, creds.Data)
 	}
 
 	<-c
