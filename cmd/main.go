@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"text/template"
 	"time"
@@ -207,6 +208,13 @@ func main() {
 	}()
 
 	if *out != "" && !leaseExist {
+		// Ensure directory for destination file exists
+		destinationDirectory := filepath.Dir(*out)
+		err := os.MkdirAll(destinationDirectory, 0666)
+		if err != nil {
+			log.Fatal(err)
+		}
+
 		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
 		if err != nil {
 			log.Fatal(err)
