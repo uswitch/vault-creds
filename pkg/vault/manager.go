@@ -34,7 +34,6 @@ func (m DefaultLeaseManager) Run(ctx context.Context, c chan int) {
 					log.Errorf("error renewing auth: %s", err)
 				}
 				if err == ErrPermissionDenied || err == ErrLeaseNotFound {
-					//	cleanUp(leasePath, tokenPath)
 					log.Error("auth token could no longer be renewed")
 					c <- 1
 					return
@@ -44,7 +43,6 @@ func (m DefaultLeaseManager) Run(ctx context.Context, c chan int) {
 					log.Errorf("error renewing db credentials: %s", err)
 				}
 				if err == ErrPermissionDenied || err == ErrLeaseNotFound {
-					//cleanUp(leasePath, tokenPath)
 					log.Error("credentials could no longer be renewed")
 					c <- 1
 					return

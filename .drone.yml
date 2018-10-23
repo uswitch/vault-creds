@@ -3,11 +3,16 @@ workspace:
   path: src/github.com/uswitch/vault-creds
 
 pipeline:
+  test:
+    image: golang:1.11
+    commands:
+      - go test -v -cover $(go list ./... | grep -v /vendor)
+
   build:
-    image: golang:1.9
+    image: golang:1.11
     commands:
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.SHA=${DRONE_COMMIT_SHA}" -o bin/vaultcreds cmd/*.go
-  
+
   docker-latest:
     image: plugins/docker
     repo: quay.io/uswitch/vault-creds
@@ -19,7 +24,7 @@ pipeline:
     when:
       event: push
       branch: master
-  
+
   docker-tagged:
     when:
       event: tag

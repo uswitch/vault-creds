@@ -159,12 +159,12 @@ func main() {
 		for {
 			select {
 			case errVal := <-errChan:
-				if errVal == 1 {
+				if errVal == 1 { //something wrong with the lease/token
 					cleanUp(leasePath, tokenPath)
 					log.Fatal("fatal error shutting down")
-				} else if errVal == 2 {
+				} else if errVal == 2 { //something wrong with another container
 					log.Fatal("shutting down")
-				} else if errVal == 0 {
+				} else if errVal == 0 { //other container's have finished
 					c <- os.Interrupt
 				}
 			}
