@@ -90,15 +90,16 @@ func main() {
 
 	var vaultTLS *vault.TLSConfig
 
-	fi, err := os.Stat(*caCert)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if fi.Mode().IsDir() {
-		vaultTLS.CAPath = *caCert
-	} else {
-		vaultTLS.CACert = *caCert
+	if *caCert != "" {
+		fi, err := os.Stat(*caCert)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if fi.Mode().IsDir() {
+			vaultTLS.CAPath = *caCert
+		} else {
+			vaultTLS.CACert = *caCert
+		}
 	}
 
 	vaultConfig := &vault.VaultConfig{
