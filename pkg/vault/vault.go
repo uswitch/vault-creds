@@ -134,6 +134,7 @@ type Credentials struct {
 
 type TLSConfig struct {
 	CACert string
+	CAPath string
 }
 
 type VaultConfig struct {
@@ -186,7 +187,7 @@ func (f *DefaultVaultClientFactory) Create(tokenPath string) (*api.Client, *api.
 func (f *DefaultVaultClientFactory) createUnauthenticatedClient() (*api.Client, error) {
 	cfg := api.DefaultConfig()
 	cfg.Address = f.vault.VaultAddr
-	cfg.ConfigureTLS(&api.TLSConfig{CACert: f.vault.TLS.CACert})
+	cfg.ConfigureTLS(&api.TLSConfig{CACert: f.vault.TLS.CACert, CAPath: f.vault.TLS.CAPath})
 	client, err := api.NewClient(cfg)
 	if err != nil {
 		return nil, err

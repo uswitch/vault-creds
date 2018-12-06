@@ -25,7 +25,7 @@ var (
 	loginPath           = kingpin.Flag("login-path", "Vault path to authenticate against").Required().String()
 	authRole            = kingpin.Flag("auth-role", "Kubernetes authentication role").Required().String()
 	secretPath          = kingpin.Flag("secret-path", "Path to secret in Vault. eg. database/creds/foo").Required().String()
-	caCert              = kingpin.Flag("ca-cert", "Path to CA certificate to validate Vault server").String()
+	caCert              = kingpin.Flag("ca-cert", "Path to CA certificate/certificate folder to validate Vault server").String()
 
 	templateFile = kingpin.Flag("template", "Path to template file").ExistingFile()
 	out          = kingpin.Flag("out", "Output file name").String()
@@ -88,9 +88,22 @@ func main() {
 		log.Fatal("error opening template:", err)
 	}
 
+	var vaultTLS *vault.TLSConfig
+
+	fi, err := os.Stat(*caCert)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if fi.Mode().IsDir() {
+		vaultTLS.CAPath = *caCert
+	} else {
+		vaultTLS.CACert = *caCert
+	}
+
 	vaultConfig := &vault.VaultConfig{
 		VaultAddr: *vaultAddr,
-		TLS:       &vault.TLSConfig{CACert: *caCert},
+		TLS:       vaultTLS,
 	}
 	kubernetesConfig := &vault.KubernetesAuthConfig{
 		TokenFile: *serviceAccountToken,
