@@ -88,7 +88,7 @@ func main() {
 		log.Fatal("error opening template:", err)
 	}
 
-	var vaultTLS *vault.TLSConfig
+	var vaultTLS vault.TLSConfig
 
 	if *caCert != "" {
 		fi, err := os.Stat(*caCert)
@@ -104,7 +104,7 @@ func main() {
 
 	vaultConfig := &vault.VaultConfig{
 		VaultAddr: *vaultAddr,
-		TLS:       vaultTLS,
+		TLS:       &vaultTLS,
 	}
 	kubernetesConfig := &vault.KubernetesAuthConfig{
 		TokenFile: *serviceAccountToken,
