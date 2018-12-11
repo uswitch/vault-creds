@@ -20,7 +20,7 @@ var ErrPermissionDenied = errors.New("permission denied")
 var ErrLeaseNotFound = errors.New("lease not found or is not renewable")
 
 type CredentialsProvider interface {
-	Fetch() (*Credentials, error)
+	Fetch() (*api.Secret, error)
 }
 
 type CredentialsRenewer interface {
@@ -114,7 +114,7 @@ func NewCredentialsProvider(client *api.Client, secretPath string) *DefaultCrede
 	return &DefaultCredentialsProvider{client: client, path: secretPath}
 }
 
-func (c *DefaultCredentialsProvider) Fetch() (*Credentials, error) {
+func (c *DefaultCredentialsProvider) Fetch() (*api.Secret, error) {
 	log.Infof("requesting credentials")
 	secret, err := c.client.Logical().Read(c.path)
 	if err != nil {
@@ -123,13 +123,7 @@ func (c *DefaultCredentialsProvider) Fetch() (*Credentials, error) {
 
 	log.WithFields(secretFields(secret)).Infof("succesfully retrieved credentials")
 
-	return &Credentials{secret.Data["username"].(string), secret.Data["password"].(string), secret}, nil
-}
-
-type Credentials struct {
-	Username string
-	Password string
-	Secret   *api.Secret
+	return secret, nil
 }
 
 type TLSConfig struct {
