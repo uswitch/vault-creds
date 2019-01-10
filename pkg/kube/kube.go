@@ -6,6 +6,7 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -46,13 +47,16 @@ func (k *KubeChecker) checkStatus() (string, error) {
 		return "", fmt.Errorf("error getting pod: %s", err)
 	}
 
+	return getTerminationReason(pod), nil
+}
+
+func getTerminationReason(pod *core.Pod) string {
 	for _, containers := range pod.Status.ContainerStatuses {
 		if containers.State.Terminated != nil {
-			return containers.State.Terminated.Reason, nil
+			return containers.State.Terminated.Reason
 		}
 	}
-
-	return "", nil
+	return ""
 }
 
 func (k *KubeChecker) Run(ctx context.Context, errChan chan int) {
@@ -68,7 +72,7 @@ func (k *KubeChecker) Run(ctx context.Context, errChan chan int) {
 			case <-ticker:
 				status, err := k.checkStatus()
 				if err != nil {
-					log.Errorf("error getting pod status: %s", err)
+					log.Errorf("error getting container statuses: %s", err)
 				}
 				if status == "Error" {
 					log.Error("primary container has errored")
