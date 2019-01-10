@@ -49,7 +49,7 @@ func (f *KubernetesVaultClientFactory) Create() (*AuthClient, error) {
 func createUnauthenticatedClient(v *VaultConfig) (*api.Client, error) {
 	cfg := api.DefaultConfig()
 	cfg.Address = v.VaultAddr
-	cfg.ConfigureTLS(&api.TLSConfig{CACert: v.TLS.CACert})
+	cfg.ConfigureTLS(&api.TLSConfig{CACert: v.TLS.CACert, CAPath: v.TLS.CAPath})
 	client, err := api.NewClient(cfg)
 	if err != nil {
 		return nil, err
