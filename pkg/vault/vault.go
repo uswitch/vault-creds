@@ -20,8 +20,7 @@ type CredentialsProvider interface {
 }
 
 type CredentialsRenewer interface {
-	RenewSecret(ctx context.Context) error
-	RenewAuthToken(ctx context.Context) error
+	Renew(ctx context.Context) error
 	RevokeSelf(ctx context.Context)
 	Run(ctx context.Context, c chan int)
 }
