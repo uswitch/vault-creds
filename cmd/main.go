@@ -2,21 +2,16 @@ package main
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"text/template"
-	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/uswitch/vault-creds/pkg/kube"
 	"github.com/uswitch/vault-creds/pkg/vault"
 	"gopkg.in/alecthomas/kingpin.v2"
-	yaml "gopkg.in/yaml.v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 var (
@@ -49,14 +44,6 @@ var (
 var (
 	SHA = ""
 )
-
-func createClientSet(config *rest.Config) (*kubernetes.Clientset, error) {
-	c, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, err
-	}
-	return c, nil
-}
 
 //This removes the lease and token files in the event of them being expired
 func cleanUp(leasePath, tokenPath string) {
@@ -123,98 +110,61 @@ func main() {
 		log.Fatal("lease detected while in init mode, shutting down and cleaning up")
 	}
 
-	factory := vault.NewKubernetesAuthClientFactory(vaultConfig, kubernetesConfig)
-	client, authSecret, err := factory.Create(tokenPath)
+	var factory vault.ClientFactory
+	if leaseExist {
+		factory = vault.NewFileAuthClientFactory(vaultConfig, tokenPath)
+	} else {
+		factory = vault.NewKubernetesAuthClientFactory(vaultConfig, kubernetesConfig)
+	}
+
+	authClient, err := factory.Create()
 	if err != nil {
 		log.Fatal("error creating client:", err)
 	}
 
-	credsProvider := vault.NewCredentialsProvider(client, *secretPath)
-
-	var creds *vault.Credentials
+	var credsProvider vault.CredentialsProvider
 
 	// if there's already a lease, use that and don't generate new credentials
 	if leaseExist {
-		log.Infof("detected existing lease")
-		bytes, err := ioutil.ReadFile(leasePath)
-		if err != nil {
-			log.Fatal("error reading lease:", err)
-		}
-
-		err = yaml.Unmarshal(bytes, &creds)
-		if err != nil {
-			log.Fatal("error unmarshalling lease")
-		}
-
+		credsProvider = vault.NewFileCredentialsProvider(leasePath)
 	} else {
-		creds, err = credsProvider.Fetch()
-		if err != nil {
-			log.Fatal(err)
-		}
+		credsProvider = vault.NewVaultCredentialsProvider(authClient.Client, *secretPath)
 	}
 
-	config, err := rest.InClusterConfig()
+	creds, err := credsProvider.Fetch()
 	if err != nil {
-		log.Fatalf("error creating kube client config: %s", err)
+		log.Fatalf("failed to retrieve credentials: %v", err)
 	}
 
-	clientSet, err := createClientSet(config)
-	if err != nil {
-		log.Fatalf("error creating kube client: %s", err)
-	}
+	leaseManager := vault.NewLeaseManager(authClient.Client, creds.Secret, *leaseDuration, *renewInterval)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	leaseManager := vault.NewLeaseManager(client)
-
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	signal.Notify(c, syscall.SIGTERM)
 
-	go func() {
-		log.Printf("renewing %s lease every %s", *leaseDuration, *renewInterval)
-		renewTicks := time.Tick(*renewInterval)
-		jobCompletionTicks := time.Tick(10 * time.Second)
-		var status <-chan time.Time
-		if *job {
-			status = time.Tick(5 * time.Second)
+	errChan := make(chan int)
+
+	go leaseManager.Run(ctx, errChan)
+
+	if *job {
+		checker, err := kube.NewKubeChecker(podName, namespace)
+		if err != nil {
+			log.Fatal(err)
 		}
+		go checker.Run(ctx, errChan)
+	}
+
+	go func() {
 		for {
 			select {
-			case <-ctx.Done():
-				log.Infof("stopping renewal")
-				return
-			case <-renewTicks:
-				err := leaseManager.RenewAuthToken(ctx, authSecret.Auth.ClientToken, *leaseDuration)
-				if err != nil {
-					log.Errorf("error renewing auth: %s", err)
-				}
-				if err == vault.ErrPermissionDenied || err == vault.ErrLeaseNotFound {
+			case errVal := <-errChan:
+				if errVal == 1 { //something wrong with the lease/token
 					cleanUp(leasePath, tokenPath)
-					log.Fatal("auth token could no longer be renewed")
-				}
-				err = leaseManager.RenewSecret(ctx, creds.Secret, *leaseDuration)
-				if err != nil {
-					log.Errorf("error renewing db credentials: %s", err)
-				}
-				if err == vault.ErrPermissionDenied || err == vault.ErrLeaseNotFound {
-					cleanUp(leasePath, tokenPath)
-					log.Fatal("credentials could no longer be renewed")
-				}
-			case <-status:
-				status, err := kube.CheckStatus(clientSet, namespace, podName)
-				if err != nil {
-					log.Errorf("error getting pod status: %s", err)
-				}
-				if status == "Error" {
-					log.Fatal("primary container has errored, shutting down")
-				}
-				if status == "Completed" {
-					log.Infof("received completion signal")
-					c <- os.Interrupt
-				}
-			case <-jobCompletionTicks:
-				if _, err := os.Stat(*completedPath); err == nil {
-					log.Infof("received completion signal")
+					log.Fatal("fatal error shutting down")
+				} else if errVal == 2 { //something wrong with another container
+					log.Fatal("shutting down")
+				} else if errVal == 0 { //other container's have finished
 					c <- os.Interrupt
 				}
 			}
@@ -238,25 +188,17 @@ func main() {
 		t.Execute(file, creds)
 		log.Printf("wrote credentials to %s", file.Name())
 
-		//write out token
-		tokenBytes, err := yaml.Marshal(authSecret)
+		err = authClient.Save(tokenPath)
 		if err != nil {
+			cleanUp(leasePath, tokenPath)
 			log.Fatal(err)
 		}
 
-		ioutil.WriteFile(tokenPath, tokenBytes, 0600)
-
-		log.Printf("wrote token to %s", tokenPath)
-
-		//write out full secret
-		bytes, err := yaml.Marshal(creds)
+		err = creds.Save(leasePath)
 		if err != nil {
+			cleanUp(leasePath, tokenPath)
 			log.Fatal(err)
 		}
-
-		ioutil.WriteFile(leasePath, bytes, 0600)
-
-		log.Printf("wrote lease to %s", leasePath)
 
 		if *initMode {
 			log.Infof("completed init")
@@ -268,7 +210,8 @@ func main() {
 
 	<-c
 	if !*initMode {
-		leaseManager.RevokeSelf(ctx, authSecret.Auth.ClientToken)
+		leaseManager.RevokeSelf(ctx)
+		cleanUp(leasePath, tokenPath)
 	}
 	log.Infof("shutting down")
 	cancel()
