@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"text/template"
 
@@ -58,6 +59,21 @@ func cleanUp(leasePath, tokenPath string) {
 	if err != nil {
 		log.Errorf("failed to remove token: %s", err)
 	}
+}
+
+func appendEnvVars(creds vault.Credentials) map[string]string {
+	envMap := make(map[string]string)
+
+	for _, v := range os.Environ() {
+		splitEnv := strings.Split(v, "=")
+		envMap[splitEnv[0]] = splitEnv[1]
+	}
+
+	// overwrites env variables called Username and Password
+	envMap["Username"] = creds.Username
+	envMap["Password"] = creds.Password
+
+	return envMap
 }
 
 func main() {
@@ -185,7 +201,7 @@ func main() {
 		}
 		defer file.Close()
 
-		t.Execute(file, creds)
+		t.Execute(file, appendEnvVars(*creds))
 		log.Printf("wrote credentials to %s", file.Name())
 
 		err = authClient.Save(tokenPath)
@@ -205,7 +221,7 @@ func main() {
 			c <- os.Interrupt
 		}
 	} else if !leaseExist {
-		t.Execute(os.Stdout, creds)
+		t.Execute(os.Stdout, appendEnvVars(*creds))
 	}
 
 	<-c
