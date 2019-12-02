@@ -29,6 +29,10 @@ var (
 	renewInterval = kingpin.Flag("renew-interval", "Interval to renew credentials").Default("15m").Duration()
 	leaseDuration = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
 
+	getCertificate   = kingpin.Flag("get-certificate", "Whether to fetch certificates or not").Default("false").Bool()
+	commonName = kingpin.Flag("common-name", "Commonname used for certificates").String()
+	ttl        = kingpin.Flag("ttl", "TTL for certificate").String()
+
 	jsonOutput = kingpin.Flag("json-log", "Output log in JSON format").Default("false").Bool()
 
 	completedPath = kingpin.Flag("completed-path", "Path where a 'completion' file will be dropped").Default("/tmp/vault-creds/completed").String()
@@ -61,7 +65,7 @@ func cleanUp(leasePath, tokenPath string) {
 	}
 }
 
-func appendEnvVars(creds vault.Credentials) map[string]string {
+func appendEnvVars(secret vault.Secret) map[string]string {
 	envMap := make(map[string]string)
 
 	for _, v := range os.Environ() {
@@ -69,9 +73,15 @@ func appendEnvVars(creds vault.Credentials) map[string]string {
 		envMap[splitEnv[0]] = splitEnv[1]
 	}
 
-	// overwrites env variables called Username and Password
-	envMap["Username"] = creds.Username
-	envMap["Password"] = creds.Password
+	switch s := secret.(type) {
+	case *vault.Credentials:
+		// overwrites env variables called Username and Password
+		envMap["Username"] = s.Username
+		envMap["Password"] = s.Password
+	case *vault.Certificate:
+		envMap["Certificate"] = s.Certificate
+		envMap["PrivateKey"] = s.PrivateKey
+	}
 
 	return envMap
 }
@@ -103,6 +113,21 @@ func main() {
 		} else {
 			vaultTLS.CACert = *caCert
 		}
+	}
+
+	var secretType vault.SecretType
+
+	options := make(map[string]string, 0)
+
+	if *getCertificate && *commonName == "" {
+		log.Fatal("error: must supply common name when requesting certificate")
+	} else if *getCertificate {
+		secretType = vault.CertificateType
+
+		options["common_name"] = *commonName
+		options["ttl"] = *ttl
+	} else {
+		secretType = vault.CredentialType
 	}
 
 	vaultConfig := &vault.VaultConfig{
@@ -138,21 +163,21 @@ func main() {
 		log.Fatal("error creating client:", err)
 	}
 
-	var credsProvider vault.CredentialsProvider
+	var secretsProvider vault.SecretsProvider
 
 	// if there's already a lease, use that and don't generate new credentials
 	if leaseExist {
-		credsProvider = vault.NewFileCredentialsProvider(leasePath)
+		secretsProvider = vault.NewFileSecretsProvider(secretType, leasePath, options)
 	} else {
-		credsProvider = vault.NewVaultCredentialsProvider(authClient.Client, *secretPath)
+		secretsProvider = vault.NewVaultSecretsProvider(authClient.Client, secretType, *secretPath, options)
 	}
 
-	creds, err := credsProvider.Fetch()
+	secret, err := secretsProvider.Fetch()
 	if err != nil {
-		log.Fatalf("failed to retrieve credentials: %v", err)
+		log.Fatalf("failed to retrieve secret: %v", err)
 	}
 
-	leaseManager := vault.NewLeaseManager(authClient.Client, creds.Secret, *leaseDuration, *renewInterval)
+	leaseManager := vault.NewLeaseManager(authClient.Client, secret, *leaseDuration, *renewInterval, *secretPath, options)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := make(chan os.Signal, 1)
@@ -201,8 +226,8 @@ func main() {
 		}
 		defer file.Close()
 
-		t.Execute(file, appendEnvVars(*creds))
-		log.Printf("wrote credentials to %s", file.Name())
+		t.Execute(file, appendEnvVars(secret))
+		log.Printf("wrote secrets to %s", file.Name())
 
 		err = authClient.Save(tokenPath)
 		if err != nil {
@@ -210,7 +235,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		err = creds.Save(leasePath)
+		err = secret.Save(leasePath)
 		if err != nil {
 			cleanUp(leasePath, tokenPath)
 			log.Fatal(err)
@@ -221,7 +246,7 @@ func main() {
 			c <- os.Interrupt
 		}
 	} else if !leaseExist {
-		t.Execute(os.Stdout, appendEnvVars(*creds))
+		t.Execute(os.Stdout, appendEnvVars(secret))
 	}
 
 	<-c
@@ -231,4 +256,5 @@ func main() {
 	}
 	log.Infof("shutting down")
 	cancel()
+
 }

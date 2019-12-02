@@ -12,11 +12,22 @@ import (
 	api "github.com/hashicorp/vault/api"
 )
 
+const (
+	CredentialType  SecretType = "credential"
+	CertificateType SecretType = "certificate"
+)
+
+type SecretType string
+
 var ErrPermissionDenied = errors.New("permission denied")
 var ErrLeaseNotFound = errors.New("lease not found or is not renewable")
 
-type CredentialsProvider interface {
-	Fetch() (*Credentials, error)
+type Secret interface {
+	Save(path string) error
+}
+
+type SecretsProvider interface {
+	Fetch() (Secret, error)
 }
 
 type CredentialsRenewer interface {
@@ -40,6 +51,13 @@ type Credentials struct {
 	Username string
 	Password string
 	Secret   *api.Secret
+}
+
+type Certificate struct {
+	Certificate string
+	PrivateKey  string
+	Expiration  int64
+	Secret      *api.Secret
 }
 
 type TLSConfig struct {
