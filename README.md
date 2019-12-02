@@ -1,14 +1,14 @@
 # Vault Creds
 
-Program (and Docker container) to be run as a sidecar to your application- requesting dynamic database credentials that will be leased while the application is active.
+Program (and Docker container) to be run as a sidecar to your application- requesting dynamic database credentials that will be leased while the application is active or requests certificate for the designated ttl
 
 It implements authentication according to [Vault's Kubernetes Authentication flow](https://kubernetes.io/docs/admin/authentication/).
 
 ## Usage
 
-This project is to be deployed in a Pod alongside the main application. When `vault-creds` starts it will request credentials at the path specified and continually renew their lease.
+This project is to be deployed in a Pod alongside the main application. When `vault-creds` starts it will request credentials or a certifcate at the path specified and continually renew their lease.
 
-For example:
+### Credentials Example
 
 ```
 $ ./bin/vaultcreds \
@@ -26,6 +26,34 @@ production:
   username: v-kubernet-app-3q9s0x28tv6xzt2yx87x-1516141848
   password: XXXXXXXXXXXXXX
 INFO[0000] renewing 1h0m0s lease every 1m0s
+```
+
+### Certificate Example
+
+```
+$ ./bin/vaultcreds \
+  --get-certificate \
+  --common-name="commonname" \
+  --ttl="2m" \
+  --ca-cert=~/.vaultca \
+  --token-file=/var/run/secrets/kubernetes.io/serviceaccount/token \
+  --login-path=kubernetes/cluster/login \
+  --auth-role=service_account_role \
+  --template=sample.database.yml \
+  --secret-path=database/creds/database_role
+INFO[0000] authenticated                                 policies="[default service_account_role]"
+INFO[0000] requesting certificate
+-----BEGIN CERTIFICATE-----
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+-----END CERTIFICATE-----INFO[0000] renewing certficate every 24h
 ```
 
 The template is applied to the latest credentials and written to `--out` (normally this would be a shared mount for the other containers read).
