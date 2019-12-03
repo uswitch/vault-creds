@@ -47,7 +47,7 @@ func (m DefaultCertificateManager) Run(ctx context.Context, c chan int) {
 				}
 				err = m.save()
 				if err != nil {
-					log.Error("error overwriting lease: %s", err)
+					log.Errorf("error overwriting lease: %s", err)
 				}
 			}
 		}

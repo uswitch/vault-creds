@@ -7,7 +7,7 @@ import (
 )
 
 func TestCertificate(t *testing.T) {
-	f := FileCredentialsProvider{secretType: CertificateType, path: "/tmp/testcert"}
+	f := FileSecretsProvider{secretType: CertificateType, path: "/tmp/testcert"}
 	secret := api.Secret{Data: map[string]interface{}{
 		"Certificate": "-----BEGIN CERTIFICATE-----R4ND0M5TR1NG-----END CERTIFICATE-----",
 		"PrivateKey":  "-----BEGIN PRIVATE KEY-----PR1V4T3K3Y-----END PRIVATE KEY-----",

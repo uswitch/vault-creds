@@ -7,7 +7,7 @@ import (
 )
 
 func TestCredentials(t *testing.T) {
-	f := FileCredentialsProvider{secretType: CredentialType, path: "/tmp/testcreds"}
+	f := FileSecretsProvider{secretType: CredentialType, path: "/tmp/testcreds"}
 
 	secret := api.Secret{Data: map[string]interface{}{"Username": "Bob", "Password": "Foo"}}
 	credentials := Credentials{Secret: &secret}
