@@ -34,6 +34,7 @@ type CredentialsRenewer interface {
 	Renew(ctx context.Context) error
 	RevokeSelf(ctx context.Context)
 	Run(ctx context.Context, c chan int)
+	EnvVars() map[string]string
 }
 
 type ClientFactory interface {

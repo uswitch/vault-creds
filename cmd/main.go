@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"text/template"
 
@@ -29,9 +28,9 @@ var (
 	renewInterval = kingpin.Flag("renew-interval", "Interval to renew credentials").Default("15m").Duration()
 	leaseDuration = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
 
-	getCertificate   = kingpin.Flag("get-certificate", "Whether to fetch certificates or not").Default("false").Bool()
-	commonName = kingpin.Flag("common-name", "Commonname used for certificates").String()
-	ttl        = kingpin.Flag("ttl", "TTL for certificate").String()
+	getCertificate = kingpin.Flag("get-certificate", "Whether to fetch certificates or not").Default("false").Bool()
+	commonName     = kingpin.Flag("common-name", "Commonname used for certificates").String()
+	ttl            = kingpin.Flag("ttl", "TTL for certificate").String()
 
 	jsonOutput = kingpin.Flag("json-log", "Output log in JSON format").Default("false").Bool()
 
@@ -63,27 +62,6 @@ func cleanUp(leasePath, tokenPath string) {
 	if err != nil {
 		log.Errorf("failed to remove token: %s", err)
 	}
-}
-
-func appendEnvVars(secret vault.Secret) map[string]string {
-	envMap := make(map[string]string)
-
-	for _, v := range os.Environ() {
-		splitEnv := strings.Split(v, "=")
-		envMap[splitEnv[0]] = splitEnv[1]
-	}
-
-	switch s := secret.(type) {
-	case *vault.Credentials:
-		// overwrites env variables called Username and Password
-		envMap["Username"] = s.Username
-		envMap["Password"] = s.Password
-	case *vault.Certificate:
-		envMap["Certificate"] = s.Certificate
-		envMap["PrivateKey"] = s.PrivateKey
-	}
-
-	return envMap
 }
 
 func main() {
@@ -166,10 +144,10 @@ func main() {
 	var secretsProvider vault.SecretsProvider
 
 	// if there's already a lease, use that and don't generate new credentials
-	if leaseExist {
-		secretsProvider = vault.NewFileSecretsProvider(secretType, leasePath, options)
-	} else {
+	if *getCertificate || !leaseExist {
 		secretsProvider = vault.NewVaultSecretsProvider(authClient.Client, secretType, *secretPath, options)
+	} else {
+		secretsProvider = vault.NewFileSecretsProvider(secretType, leasePath, options)
 	}
 
 	secret, err := secretsProvider.Fetch()
@@ -177,7 +155,14 @@ func main() {
 		log.Fatalf("failed to retrieve secret: %v", err)
 	}
 
-	leaseManager := vault.NewLeaseManager(authClient.Client, secret, *leaseDuration, *renewInterval, *secretPath, options)
+	var manager vault.CredentialsRenewer
+	switch s := secret.(type) {
+	case *vault.Certificate:
+		provider, _ := secretsProvider.(*vault.VaultSecretsProvider)
+		manager = vault.NewCertificateManager(authClient.Client, s, *leaseDuration, provider, t, *out)
+	case *vault.Credentials:
+		manager = vault.NewLeaseManager(authClient.Client, s, *leaseDuration, *renewInterval)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := make(chan os.Signal, 1)
@@ -186,7 +171,7 @@ func main() {
 
 	errChan := make(chan int)
 
-	go leaseManager.Run(ctx, errChan)
+	go manager.Run(ctx, errChan)
 
 	if *job {
 		checker, err := kube.NewKubeChecker(podName, namespace)
@@ -226,7 +211,7 @@ func main() {
 		}
 		defer file.Close()
 
-		t.Execute(file, appendEnvVars(secret))
+		t.Execute(file, manager.EnvVars())
 		log.Printf("wrote secrets to %s", file.Name())
 
 		err = authClient.Save(tokenPath)
@@ -246,12 +231,12 @@ func main() {
 			c <- os.Interrupt
 		}
 	} else if !leaseExist {
-		t.Execute(os.Stdout, appendEnvVars(secret))
+		t.Execute(os.Stdout, manager.EnvVars())
 	}
 
 	<-c
 	if !*initMode {
-		leaseManager.RevokeSelf(ctx)
+		manager.RevokeSelf(ctx)
 		cleanUp(leasePath, tokenPath)
 	}
 	log.Infof("shutting down")

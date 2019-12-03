@@ -2,7 +2,8 @@ package vault
 
 import (
 	"context"
-	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -11,21 +12,16 @@ import (
 )
 
 type DefaultLeaseManager struct {
-	client  *api.Client
-	secret  Secret
-	lease   time.Duration
-	renew   time.Duration
-	path    string
-	options map[string]string
+	client      *api.Client
+	credentials *Credentials
+	lease       time.Duration
+	renew       time.Duration
 }
 
 func (m DefaultLeaseManager) Run(ctx context.Context, c chan int) {
 	go func() {
-		if _, ok := m.secret.(*Certificate); ok {
-			log.Printf("renewing certificate every %s", m.renew)
-		} else {
-			log.Printf("renewing %s lease every %s", m.lease, m.renew)
-		}
+
+		log.Printf("renewing %s lease every %s", m.lease, m.renew)
 
 		renewTicks := time.Tick(m.renew)
 
@@ -74,26 +70,31 @@ func (m *DefaultLeaseManager) Renew(ctx context.Context) error {
 		return err
 	}
 
+	logger := log.WithField("leaseID", m.credentials.Secret.LeaseID)
+	logger.Infof("renewing lease by %s.", m.lease)
+
 	op = func() error {
-		switch s := m.secret.(type) {
-		case *Credentials:
-			logger := log.WithField("leaseID", s.Secret.LeaseID)
-			logger.Infof("renewing lease by %s.", m.lease)
-
-			return renewSecret(m.client, s.Secret.LeaseID, int(m.lease.Seconds()))
-		case *Certificate:
-			logger := log.StandardLogger()
-			logger.Infof("renewing certificate for %s.", m.options["ttl"])
-
-			return renewCert(m.client, m.path, m.options)
-		default:
-			return fmt.Errorf("could not dertemine secret type")
-		}
+		return renewSecret(m.client, m.credentials.Secret.LeaseID, int(m.lease.Seconds()))
 	}
 
 	err = backoff.Retry(op, backoff.WithContext(defaultRetryStrategy(m.lease), ctx))
 
 	return err
+}
+
+func (m *DefaultLeaseManager) EnvVars() map[string]string {
+	envMap := make(map[string]string)
+
+	for _, v := range os.Environ() {
+		splitEnv := strings.Split(v, "=")
+		envMap[splitEnv[0]] = splitEnv[1]
+	}
+
+	// overwrites env variables called Username and Password
+	envMap["Username"] = m.credentials.Username
+	envMap["Password"] = m.credentials.Password
+
+	return envMap
 }
 
 func renewAuth(client *api.Client, renew int) error {
@@ -126,40 +127,11 @@ func renewSecret(client *api.Client, leaseID string, renew int) error {
 	return nil
 }
 
-func renewCert(client *api.Client, path string, options map[string]string) error {
-	log.Infof("renewing certificate")
-
-	params := make(map[string]interface{}, 0)
-	for k, v := range options {
-		params[k] = interface{}(v)
-	}
-
-	secret, err := client.Logical().Write(path, params)
-	if err != nil {
-		log.Errorf("error renewing lease: %s", err)
-		fatalError := checkFatalError(err)
-		if fatalError != nil {
-			return backoff.Permanent(fatalError)
-		}
-		return err
-	}
-
-	log.WithFields(secretFields(secret)).Infof("succesfully renewed cert")
-
-	return nil
-}
-
-func NewLeaseManager(client *api.Client, secret Secret, lease time.Duration, renew time.Duration, path string, options map[string]string) CredentialsRenewer {
-	if s, ok := secret.(*Certificate); ok {
-		renew = time.Until(time.Unix(s.Expiration, 0)).Round(time.Minute)
-	}
-
+func NewLeaseManager(client *api.Client, credentials *Credentials, lease time.Duration, renew time.Duration) CredentialsRenewer {
 	return &DefaultLeaseManager{
-		client:  client,
-		secret:  secret,
-		lease:   lease,
-		renew:   renew,
-		path:    path,
-		options: options,
+		client:      client,
+		credentials: credentials,
+		lease:       lease,
+		renew:       renew,
 	}
 }

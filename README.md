@@ -39,7 +39,7 @@ $ ./bin/vaultcreds \
   --token-file=/var/run/secrets/kubernetes.io/serviceaccount/token \
   --login-path=kubernetes/cluster/login \
   --auth-role=service_account_role \
-  --template=sample.database.yml \
+  --template=sample.certificate.yml \
   --secret-path=database/creds/database_role
 INFO[0000] authenticated                                 policies="[default service_account_role]"
 INFO[0000] requesting certificate
