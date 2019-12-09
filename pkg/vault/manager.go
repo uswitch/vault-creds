@@ -2,8 +2,10 @@ package vault
 
 import (
 	"context"
+	"fmt"
 	"os"
-	"strings"
+	"path/filepath"
+	"text/template"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -11,17 +13,24 @@ import (
 	"github.com/hashicorp/vault/api"
 )
 
-type DefaultLeaseManager struct {
-	client      *api.Client
-	credentials *Credentials
-	lease       time.Duration
-	renew       time.Duration
+type DefaultManager struct {
+	client   *api.Client
+	secret   Secret
+	lease    time.Duration
+	renew    time.Duration
+	provider *VaultSecretsProvider
+	template *template.Template
+	outPath  string
 }
 
-func (m DefaultLeaseManager) Run(ctx context.Context, c chan int) {
+func (m DefaultManager) Run(ctx context.Context, c chan int) {
 	go func() {
-
-		log.Printf("renewing %s lease every %s", m.lease, m.renew)
+		_, isCert := m.secret.(*Certificate)
+		if isCert {
+			log.Printf("renewing certificate every %s", m.renew)
+		} else {
+			log.Printf("renewing %s lease every %s", m.lease, m.renew)
+		}
 
 		renewTicks := time.Tick(m.renew)
 
@@ -40,6 +49,12 @@ func (m DefaultLeaseManager) Run(ctx context.Context, c chan int) {
 					c <- 1
 					return
 				}
+				if isCert {
+					err = m.Save()
+					if err != nil {
+						log.Errorf("error overwriting lease: %s", err)
+					}
+				}
 			}
 		}
 	}()
@@ -47,7 +62,7 @@ func (m DefaultLeaseManager) Run(ctx context.Context, c chan int) {
 }
 
 //RevokeSelf this will attempt to revoke its own token
-func (m *DefaultLeaseManager) RevokeSelf(ctx context.Context) {
+func (m *DefaultManager) RevokeSelf(ctx context.Context) {
 
 	err := m.client.Auth().Token().RevokeSelf("")
 	if err != nil {
@@ -58,7 +73,7 @@ func (m *DefaultLeaseManager) RevokeSelf(ctx context.Context) {
 
 }
 
-func (m *DefaultLeaseManager) Renew(ctx context.Context) error {
+func (m *DefaultManager) Renew(ctx context.Context) error {
 
 	op := func() error {
 		return renewAuth(m.client, int(m.lease.Seconds()))
@@ -70,11 +85,20 @@ func (m *DefaultLeaseManager) Renew(ctx context.Context) error {
 		return err
 	}
 
-	logger := log.WithField("leaseID", m.credentials.Secret.LeaseID)
-	logger.Infof("renewing lease by %s.", m.lease)
+	creds, isCreds := m.secret.(*Credentials)
+	if isCreds {
+		logger := log.WithField("leaseID", creds.Secret.LeaseID)
+		logger.Infof("renewing lease by %s.", m.lease)
+	} else {
+		logger := log.StandardLogger()
+		logger.Infof("renewing certificate for %s.", m.renew)
+	}
 
 	op = func() error {
-		return renewSecret(m.client, m.credentials.Secret.LeaseID, int(m.lease.Seconds()))
+		if isCreds {
+			return m.renewSecret(creds.Secret.LeaseID)
+		}
+		return m.renewCertificate()
 	}
 
 	err = backoff.Retry(op, backoff.WithContext(defaultRetryStrategy(m.lease), ctx))
@@ -82,19 +106,62 @@ func (m *DefaultLeaseManager) Renew(ctx context.Context) error {
 	return err
 }
 
-func (m *DefaultLeaseManager) EnvVars() map[string]string {
-	envMap := make(map[string]string)
+func (m *DefaultManager) Save() error {
+	if m.outPath != "" {
+		// Ensure directory for destination file exists
+		destinationDirectory := filepath.Dir(m.outPath)
+		err := os.MkdirAll(destinationDirectory, 0666)
+		if err != nil {
+			return err
+		}
 
-	for _, v := range os.Environ() {
-		splitEnv := strings.Split(v, "=")
-		envMap[splitEnv[0]] = splitEnv[1]
+		file, err := os.OpenFile(m.outPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		m.template.Execute(file, m.secret.EnvVars())
+
+		log.Printf("wrote secrets to %s", file.Name())
+
+		return m.secret.Save(fmt.Sprintf("%s.lease", m.outPath))
 	}
 
-	// overwrites env variables called Username and Password
-	envMap["Username"] = m.credentials.Username
-	envMap["Password"] = m.credentials.Password
+	m.template.Execute(os.Stdout, m.secret.EnvVars())
 
-	return envMap
+	return nil
+}
+
+func (m *DefaultManager) renewSecret(leaseID string) error {
+	secret, err := m.client.Sys().Renew(leaseID, int(m.lease.Seconds()))
+	if err != nil {
+		log.Errorf("error renewing lease: %s", err)
+		fatalError := checkFatalError(err)
+		if fatalError != nil {
+			return backoff.Permanent(fatalError)
+		}
+		return err
+	}
+	log.WithFields(secretFields(secret)).Infof("successfully renewed secret")
+
+	return nil
+}
+
+func (m *DefaultManager) renewCertificate() error {
+	log.Infof("renewing certificate")
+	var err error
+	m.secret, err = m.provider.newCertificate()
+	if err != nil {
+		log.Errorf("error renewing certificate: %s", err)
+		fatalError := checkFatalError(err)
+		if fatalError != nil {
+			return backoff.Permanent(fatalError)
+		}
+		return err
+	}
+
+	return nil
 }
 
 func renewAuth(client *api.Client, renew int) error {
@@ -112,26 +179,7 @@ func renewAuth(client *api.Client, renew int) error {
 	return nil
 }
 
-func renewSecret(client *api.Client, leaseID string, renew int) error {
-	secret, err := client.Sys().Renew(leaseID, renew)
-	if err != nil {
-		log.Errorf("error renewing lease: %s", err)
-		fatalError := checkFatalError(err)
-		if fatalError != nil {
-			return backoff.Permanent(fatalError)
-		}
-		return err
-	}
-	log.WithFields(secretFields(secret)).Infof("successfully renewed secret")
+func NewManager(client *api.Client, secret Secret, lease time.Duration, renew time.Duration, provider *VaultSecretsProvider, template *template.Template, outPath string) CredentialsRenewer {
 
-	return nil
-}
-
-func NewLeaseManager(client *api.Client, credentials *Credentials, lease time.Duration, renew time.Duration) CredentialsRenewer {
-	return &DefaultLeaseManager{
-		client:      client,
-		credentials: credentials,
-		lease:       lease,
-		renew:       renew,
-	}
+	return &DefaultManager{client: client, secret: secret, lease: lease, renew: renew, provider: provider, template: template, outPath: outPath}
 }

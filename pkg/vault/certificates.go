@@ -3,6 +3,8 @@ package vault
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
+	"strings"
 
 	log "github.com/Sirupsen/logrus"
 	yaml "gopkg.in/yaml.v1"
@@ -31,4 +33,18 @@ func (c *Certificate) Save(path string) error {
 
 	log.Printf("wrote lease to %s", path)
 	return nil
+}
+
+func (c *Certificate) EnvVars() map[string]string {
+	envMap := make(map[string]string)
+
+	for _, v := range os.Environ() {
+		splitEnv := strings.Split(v, "=")
+		envMap[splitEnv[0]] = splitEnv[1]
+	}
+
+	envMap["Certificate"] = c.Certificate
+	envMap["PrivateKey"] = c.PrivateKey
+
+	return envMap
 }

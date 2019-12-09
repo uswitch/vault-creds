@@ -4,9 +4,9 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"text/template"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/uswitch/vault-creds/pkg/kube"
@@ -29,7 +29,7 @@ var (
 	leaseDuration = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
 
 	getCertificate = kingpin.Flag("get-certificate", "Whether to fetch certificates or not").Default("false").Bool()
-	commonName     = kingpin.Flag("common-name", "Commonname used for certificates").String()
+	commonName     = kingpin.Flag("common-name", "Common name used for certificates").String()
 	ttl            = kingpin.Flag("ttl", "TTL for certificate").String()
 
 	jsonOutput = kingpin.Flag("json-log", "Output log in JSON format").Default("false").Bool()
@@ -99,7 +99,7 @@ func main() {
 
 	if *getCertificate && *commonName == "" {
 		log.Fatal("error: must supply common name when requesting certificate")
-	} else if *getCertificate {
+	} else if *getCertificate && *commonName != "" {
 		secretType = vault.CertificateType
 
 		options["common_name"] = *commonName
@@ -156,12 +156,14 @@ func main() {
 	}
 
 	var manager vault.CredentialsRenewer
-	switch s := secret.(type) {
-	case *vault.Certificate:
+
+	if cert, isCert := secret.(*vault.Certificate); isCert {
 		provider, _ := secretsProvider.(*vault.VaultSecretsProvider)
-		manager = vault.NewCertificateManager(authClient.Client, s, *leaseDuration, provider, t, *out)
-	case *vault.Credentials:
-		manager = vault.NewLeaseManager(authClient.Client, s, *leaseDuration, *renewInterval)
+		renew := time.Until(time.Unix(cert.Expiration, 0)).Round(time.Minute)
+
+		manager = vault.NewManager(authClient.Client, secret, *leaseDuration, renew, provider, t, *out)
+	} else {
+		manager = vault.NewManager(authClient.Client, secret, *leaseDuration, *renewInterval, nil, t, *out)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -198,29 +200,13 @@ func main() {
 	}()
 
 	if *out != "" && !leaseExist {
-		// Ensure directory for destination file exists
-		destinationDirectory := filepath.Dir(*out)
-		err := os.MkdirAll(destinationDirectory, 0666)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer file.Close()
-
-		t.Execute(file, manager.EnvVars())
-		log.Printf("wrote secrets to %s", file.Name())
-
-		err = authClient.Save(tokenPath)
+		err = manager.Save()
 		if err != nil {
 			cleanUp(leasePath, tokenPath)
 			log.Fatal(err)
 		}
 
-		err = secret.Save(leasePath)
+		err = authClient.Save(tokenPath)
 		if err != nil {
 			cleanUp(leasePath, tokenPath)
 			log.Fatal(err)
@@ -231,7 +217,7 @@ func main() {
 			c <- os.Interrupt
 		}
 	} else if !leaseExist {
-		t.Execute(os.Stdout, manager.EnvVars())
+		t.Execute(os.Stdout, secret.EnvVars())
 	}
 
 	<-c

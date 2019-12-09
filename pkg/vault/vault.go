@@ -24,6 +24,7 @@ var ErrLeaseNotFound = errors.New("lease not found or is not renewable")
 
 type Secret interface {
 	Save(path string) error
+	EnvVars() map[string]string
 }
 
 type SecretsProvider interface {
@@ -34,7 +35,7 @@ type CredentialsRenewer interface {
 	Renew(ctx context.Context) error
 	RevokeSelf(ctx context.Context)
 	Run(ctx context.Context, c chan int)
-	EnvVars() map[string]string
+	Save() error
 }
 
 type ClientFactory interface {
