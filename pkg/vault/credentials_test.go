@@ -7,7 +7,7 @@ import (
 )
 
 func TestCredentials(t *testing.T) {
-	f := FileCredentialsProvider{path: "/tmp/testcreds"}
+	f := FileSecretsProvider{secretType: CredentialType, path: "/tmp/testcreds"}
 
 	secret := api.Secret{Data: map[string]interface{}{"Username": "Bob", "Password": "Foo"}}
 	credentials := Credentials{Secret: &secret}
@@ -20,8 +20,10 @@ func TestCredentials(t *testing.T) {
 		t.Errorf("error reading testing credentials: %v", err)
 	}
 
-	if creds.Secret.Data["Username"] != "Bob" || creds.Secret.Data["Password"] != "Foo" {
-		t.Errorf("did not get expected credentials, got username: %v, password: %v", creds.Secret.Data["Username"], creds.Secret.Data["Password"])
+	c := creds.(*Credentials)
+
+	if c.Secret.Data["Username"] != "Bob" || c.Secret.Data["Password"] != "Foo" {
+		t.Errorf("did not get expected credentials, got username: %v, password: %v", c.Secret.Data["Username"], c.Secret.Data["Password"])
 	}
 
 }

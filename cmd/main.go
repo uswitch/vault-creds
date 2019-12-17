@@ -4,10 +4,9 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"syscall"
 	"text/template"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/uswitch/vault-creds/pkg/kube"
@@ -28,6 +27,10 @@ var (
 
 	renewInterval = kingpin.Flag("renew-interval", "Interval to renew credentials").Default("15m").Duration()
 	leaseDuration = kingpin.Flag("lease-duration", "Credentials lease duration").Default("1h").Duration()
+
+	getCertificate = kingpin.Flag("get-certificate", "Whether to fetch certificates or not").Default("false").Bool()
+	commonName     = kingpin.Flag("common-name", "Common name used for certificates").String()
+	ttl            = kingpin.Flag("ttl", "TTL for certificate").String()
 
 	jsonOutput = kingpin.Flag("json-log", "Output log in JSON format").Default("false").Bool()
 
@@ -61,21 +64,6 @@ func cleanUp(leasePath, tokenPath string) {
 	}
 }
 
-func appendEnvVars(creds vault.Credentials) map[string]string {
-	envMap := make(map[string]string)
-
-	for _, v := range os.Environ() {
-		splitEnv := strings.Split(v, "=")
-		envMap[splitEnv[0]] = splitEnv[1]
-	}
-
-	// overwrites env variables called Username and Password
-	envMap["Username"] = creds.Username
-	envMap["Password"] = creds.Password
-
-	return envMap
-}
-
 func main() {
 	kingpin.Parse()
 
@@ -103,6 +91,21 @@ func main() {
 		} else {
 			vaultTLS.CACert = *caCert
 		}
+	}
+
+	var secretType vault.SecretType
+
+	options := make(map[string]string, 0)
+
+	if *getCertificate && *commonName == "" {
+		log.Fatal("error: must supply common name when requesting certificate")
+	} else if *getCertificate && *commonName != "" {
+		secretType = vault.CertificateType
+
+		options["common_name"] = *commonName
+		options["ttl"] = *ttl
+	} else {
+		secretType = vault.CredentialType
 	}
 
 	vaultConfig := &vault.VaultConfig{
@@ -138,21 +141,30 @@ func main() {
 		log.Fatal("error creating client:", err)
 	}
 
-	var credsProvider vault.CredentialsProvider
+	var secretsProvider vault.SecretsProvider
 
 	// if there's already a lease, use that and don't generate new credentials
-	if leaseExist {
-		credsProvider = vault.NewFileCredentialsProvider(leasePath)
+	if *getCertificate || !leaseExist {
+		secretsProvider = vault.NewVaultSecretsProvider(authClient.Client, secretType, *secretPath, options)
 	} else {
-		credsProvider = vault.NewVaultCredentialsProvider(authClient.Client, *secretPath)
+		secretsProvider = vault.NewFileSecretsProvider(secretType, leasePath, options)
 	}
 
-	creds, err := credsProvider.Fetch()
+	secret, err := secretsProvider.Fetch()
 	if err != nil {
-		log.Fatalf("failed to retrieve credentials: %v", err)
+		log.Fatalf("failed to retrieve secret: %v", err)
 	}
 
-	leaseManager := vault.NewLeaseManager(authClient.Client, creds.Secret, *leaseDuration, *renewInterval)
+	var manager vault.CredentialsRenewer
+
+	if cert, isCert := secret.(*vault.Certificate); isCert {
+		provider, _ := secretsProvider.(*vault.VaultSecretsProvider)
+		renew := time.Until(time.Unix(cert.Expiration, 0)).Round(time.Minute)
+
+		manager = vault.NewManager(authClient.Client, secret, *leaseDuration, renew, provider, t, *out)
+	} else {
+		manager = vault.NewManager(authClient.Client, secret, *leaseDuration, *renewInterval, nil, t, *out)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := make(chan os.Signal, 1)
@@ -161,7 +173,7 @@ func main() {
 
 	errChan := make(chan int)
 
-	go leaseManager.Run(ctx, errChan)
+	go manager.Run(ctx, errChan)
 
 	if *job {
 		checker, err := kube.NewKubeChecker(podName, namespace)
@@ -188,29 +200,13 @@ func main() {
 	}()
 
 	if *out != "" && !leaseExist {
-		// Ensure directory for destination file exists
-		destinationDirectory := filepath.Dir(*out)
-		err := os.MkdirAll(destinationDirectory, 0666)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		file, err := os.OpenFile(*out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer file.Close()
-
-		t.Execute(file, appendEnvVars(*creds))
-		log.Printf("wrote credentials to %s", file.Name())
-
-		err = authClient.Save(tokenPath)
+		err = manager.Save()
 		if err != nil {
 			cleanUp(leasePath, tokenPath)
 			log.Fatal(err)
 		}
 
-		err = creds.Save(leasePath)
+		err = authClient.Save(tokenPath)
 		if err != nil {
 			cleanUp(leasePath, tokenPath)
 			log.Fatal(err)
@@ -221,14 +217,15 @@ func main() {
 			c <- os.Interrupt
 		}
 	} else if !leaseExist {
-		t.Execute(os.Stdout, appendEnvVars(*creds))
+		t.Execute(os.Stdout, secret.EnvVars())
 	}
 
 	<-c
 	if !*initMode {
-		leaseManager.RevokeSelf(ctx)
+		manager.RevokeSelf(ctx)
 		cleanUp(leasePath, tokenPath)
 	}
 	log.Infof("shutting down")
 	cancel()
+
 }
