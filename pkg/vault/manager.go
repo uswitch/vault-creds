@@ -8,9 +8,9 @@ import (
 	"text/template"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/cenkalti/backoff"
 	"github.com/hashicorp/vault/api"
+	log "github.com/sirupsen/logrus"
 )
 
 type DefaultManager struct {
