@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	core "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -40,9 +40,9 @@ func NewKubeChecker(pod, namespace string) (*KubeChecker, error) {
 }
 
 //CheckStatus checks the staus of the other containers
-func (k *KubeChecker) checkStatus() (string, error) {
+func (k *KubeChecker) checkStatus(ctx context.Context) (string, error) {
 
-	pod, err := k.client.CoreV1().Pods(k.namespace).Get(k.podName, v1.GetOptions{})
+	pod, err := k.client.CoreV1().Pods(k.namespace).Get(ctx, k.podName, v1.GetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("error getting pod: %s", err)
 	}
@@ -70,7 +70,7 @@ func (k *KubeChecker) Run(ctx context.Context, errChan chan int) {
 				log.Infof("stopping checker")
 				return
 			case <-ticker:
-				status, err := k.checkStatus()
+				status, err := k.checkStatus(ctx)
 				if err != nil {
 					log.Errorf("error getting container statuses: %s", err)
 				}

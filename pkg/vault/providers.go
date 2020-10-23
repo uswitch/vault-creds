@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io/ioutil"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/hashicorp/vault/api"
-	"github.com/hashicorp/vault/helper/certutil"
+	"github.com/hashicorp/vault/sdk/helper/certutil"
+	log "github.com/sirupsen/logrus"
 )
 
 type VaultSecretsProvider struct {

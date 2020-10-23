@@ -4,14 +4,14 @@ workspace:
 
 pipeline:
   test:
-    image: golang:1.12
+    image: golang:1.15
     environment:
       - GO111MODULE=on
     commands:
       - go test -v -cover $(go list ./... | grep -v /vendor)
 
   build:
-    image: golang:1.12
+    image: golang:1.15
     environment:
       - GO111MODULE=on
     commands:

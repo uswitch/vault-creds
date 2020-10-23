@@ -8,7 +8,7 @@ import (
 	"text/template"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/uswitch/vault-creds/pkg/kube"
 	"github.com/uswitch/vault-creds/pkg/vault"
 	"gopkg.in/alecthomas/kingpin.v2"
