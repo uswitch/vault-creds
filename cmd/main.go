@@ -10,6 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/uswitch/vault-creds/pkg/kube"
+	"github.com/uswitch/vault-creds/pkg/metrics"
 	"github.com/uswitch/vault-creds/pkg/vault"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
@@ -33,6 +34,8 @@ var (
 	ttl            = kingpin.Flag("ttl", "TTL for certificate").String()
 
 	jsonOutput = kingpin.Flag("json-log", "Output log in JSON format").Default("false").Bool()
+
+	gatewayAddr = kingpin.Flag("gateway-addr", "Push Gateway address, e.g. http://localhost:8080").String()
 
 	completedPath = kingpin.Flag("completed-path", "Path where a 'completion' file will be dropped").Default("/tmp/vault-creds/completed").String()
 	job           = kingpin.Flag("job", "Whether to run in cronjob mode").Default("false").Bool()
@@ -156,14 +159,15 @@ func main() {
 	}
 
 	var manager vault.CredentialsRenewer
+	gateway := metrics.NewPushGateway(*gatewayAddr)
 
 	if cert, isCert := secret.(*vault.Certificate); isCert {
 		provider, _ := secretsProvider.(*vault.VaultSecretsProvider)
 		renew := time.Until(time.Unix(cert.Expiration, 0)).Round(time.Minute)
 
-		manager = vault.NewManager(authClient.Client, secret, *leaseDuration, renew, provider, t, *out)
+		manager = vault.NewManager(authClient.Client, secret, *leaseDuration, renew, provider, t, nil, *out)
 	} else {
-		manager = vault.NewManager(authClient.Client, secret, *leaseDuration, *renewInterval, nil, t, *out)
+		manager = vault.NewManager(authClient.Client, secret, *leaseDuration, *renewInterval, nil, t, gateway, *out)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
