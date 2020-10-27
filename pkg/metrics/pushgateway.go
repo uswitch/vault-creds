@@ -16,25 +16,25 @@ var (
 
 	errorTime = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: promNamespace,
-		Name:      "last_renewal_error_timestamp_seconds",
-		Help:      "The timestamp of the last error during renewal of a secret",
+		Name:      "credential_renewal_error_unix_timestamp",
+		Help:      "The unix timestamp of the last error during renewal of a secret",
 	})
 
 	errorCount = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: promNamespace,
-		Name:      "error_count",
+		Name:      "credential_renewal_errors_total",
 		Help:      "Number of errors when renewing credentials",
 	})
 
 	successTime = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: promNamespace,
-		Name:      "last_renewal_success_timestamp_seconds",
-		Help:      "The timestamp of the last successful renewal of a secret",
+		Name:      "credential_renewal_success_unix_timestamp",
+		Help:      "The unix timestamp of the last successful renewal of a secret",
 	})
 
 	leaseExpiration = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: promNamespace,
-		Name:      "time_until_secrets_expire",
+		Name:      "credential_expiry_time_seconds",
 		Help:      "The time remaining until the secret lease expires",
 	})
 )
@@ -47,6 +47,7 @@ type PushGateway struct {
 func NewPushGateway(gatewayAddress string) *PushGateway {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(leaseExpiration, errorTime, successTime, errorCount)
+
 	pusher := push.New(gatewayAddress, "vault-creds").Gatherer(registry)
 
 	return &PushGateway{
@@ -73,7 +74,6 @@ func (p *PushGateway) SetFailureCount() {
 }
 
 func (p *PushGateway) Push() {
-
 	if p.address != "" {
 		err := p.Pusher.
 			Grouping("instance", podName).
