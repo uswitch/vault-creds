@@ -8,6 +8,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/uswitch/vault-creds/pkg/kube"
 	"github.com/uswitch/vault-creds/pkg/metrics"
@@ -53,7 +54,7 @@ var (
 )
 
 //This removes the lease and token files in the event of them being expired
-func cleanUp(leasePath, tokenPath string) {
+func cleanUp(leasePath, tokenPath string, pusher *push.Pusher) {
 	log.Infof("deleting lease and credentials")
 
 	err := os.Remove(leasePath)
@@ -64,6 +65,11 @@ func cleanUp(leasePath, tokenPath string) {
 	err = os.Remove(tokenPath)
 	if err != nil {
 		log.Errorf("failed to remove token: %s", err)
+	}
+
+	err = pusher.Delete()
+	if err != nil {
+		log.Errorf("failed to delete pusher: %s", err)
 	}
 }
 
@@ -121,6 +127,8 @@ func main() {
 		Role:      *authRole,
 	}
 
+	gateway := metrics.NewPushGateway(*gatewayAddr)
+
 	leasePath := *out + ".lease"
 	tokenPath := *out + ".token"
 	if _, err = os.Stat(leasePath); err == nil {
@@ -128,7 +136,7 @@ func main() {
 	}
 
 	if leaseExist && *initMode {
-		cleanUp(leasePath, tokenPath)
+		cleanUp(leasePath, tokenPath, gateway.Pusher)
 		log.Fatal("lease detected while in init mode, shutting down and cleaning up")
 	}
 
@@ -159,7 +167,6 @@ func main() {
 	}
 
 	var manager vault.CredentialsRenewer
-	gateway := metrics.NewPushGateway(*gatewayAddr)
 
 	if cert, isCert := secret.(*vault.Certificate); isCert {
 		provider, _ := secretsProvider.(*vault.VaultSecretsProvider)
@@ -192,7 +199,7 @@ func main() {
 			select {
 			case errVal := <-errChan:
 				if errVal == 1 { //something wrong with the lease/token
-					cleanUp(leasePath, tokenPath)
+					cleanUp(leasePath, tokenPath, gateway.Pusher)
 					log.Fatal("fatal error shutting down")
 				} else if errVal == 2 { //something wrong with another container
 					log.Fatal("shutting down")
@@ -206,13 +213,13 @@ func main() {
 	if *out != "" && !leaseExist {
 		err = manager.Save()
 		if err != nil {
-			cleanUp(leasePath, tokenPath)
+			cleanUp(leasePath, tokenPath, gateway.Pusher)
 			log.Fatal(err)
 		}
 
 		err = authClient.Save(tokenPath)
 		if err != nil {
-			cleanUp(leasePath, tokenPath)
+			cleanUp(leasePath, tokenPath, gateway.Pusher)
 			log.Fatal(err)
 		}
 
@@ -227,7 +234,7 @@ func main() {
 	<-c
 	if !*initMode {
 		manager.RevokeSelf(ctx)
-		cleanUp(leasePath, tokenPath)
+		cleanUp(leasePath, tokenPath, gateway.Pusher)
 	}
 	log.Infof("shutting down")
 	cancel()
