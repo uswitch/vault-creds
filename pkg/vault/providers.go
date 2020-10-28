@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"time"
 
 	"github.com/hashicorp/vault/api"
 	"github.com/hashicorp/vault/sdk/helper/certutil"
@@ -75,7 +76,15 @@ func (c *VaultSecretsProvider) newCredentials() (*Credentials, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Credentials{secret.Data["username"].(string), secret.Data["password"].(string), secret}, nil
+
+	leaseExpireTime := time.Now().Add(time.Duration(secret.LeaseDuration) * time.Second).Format(time.RFC3339)
+
+	return &Credentials{
+		Username:        secret.Data["username"].(string),
+		Password:        secret.Data["password"].(string),
+		Secret:          secret,
+		LeaseExpireTime: &leaseExpireTime,
+	}, nil
 }
 
 func (c *FileSecretsProvider) Fetch() (Secret, error) {

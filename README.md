@@ -86,6 +86,26 @@ env:
 
 Also ensure that the service account you use has permission to `GET` pods in its own namespace.
 
+## Metrics
+
+We have enabled some simple metrics to be collected from the vault-creds pod.
+
+These simple metrics are;
+
+- An error count of the number of errors during credential renewal
+
+- A unix timestamp of the last error during renewal of a secret
+
+- A unix timestamp of the last successful renewal of a secret
+
+- The amount of second remaining until the secret lease expires
+
+These metrics are only available if you have a [Prometheus Push Gateway](https://github.com/prometheus/pushgateway).
+
+We have chosen to use a Push Gateway because of how `vault-creds` is deployed. As `vault-creds` is meant to be deployed in a Pod alongside the main application, we did not want to cause unnecessary complications with exposing metrics and ports for scraping by Prometheus that may conflict with the main application.
+
+To get these metrics in your Push Gateway, pass the `--gateway-addr` flag with the address to send metrics too.
+
 ## License
 
 ```

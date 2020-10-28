@@ -11,6 +11,7 @@ import (
 	"github.com/cenkalti/backoff"
 	"github.com/hashicorp/vault/api"
 	log "github.com/sirupsen/logrus"
+	"github.com/uswitch/vault-creds/pkg/metrics"
 )
 
 type DefaultManager struct {
@@ -20,6 +21,7 @@ type DefaultManager struct {
 	renew    time.Duration
 	provider *VaultSecretsProvider
 	template *template.Template
+	gateway  *metrics.PushGateway
 	outPath  string
 }
 
@@ -32,7 +34,10 @@ func (m DefaultManager) Run(ctx context.Context, c chan int) {
 			log.Printf("renewing %s lease every %s", m.lease, m.renew)
 		}
 
+		creds, isSecret := m.secret.(*Credentials)
+
 		renewTicks := time.Tick(m.renew)
+		metricTicks := time.Tick(5 * time.Second)
 
 		for {
 			select {
@@ -42,7 +47,11 @@ func (m DefaultManager) Run(ctx context.Context, c chan int) {
 			case <-renewTicks:
 				err := m.Renew(ctx)
 				if err != nil {
+					m.gateway.SetFailureTime()
+					m.gateway.SetFailureCount()
 					log.Errorf("error renewing secret: %s", err)
+				} else {
+					m.gateway.SetSuccessTime()
 				}
 				if err == ErrPermissionDenied || err == ErrLeaseNotFound {
 					log.Error("secret could no longer be renewed")
@@ -54,6 +63,16 @@ func (m DefaultManager) Run(ctx context.Context, c chan int) {
 					if err != nil {
 						log.Errorf("error overwriting lease: %s", err)
 					}
+				}
+				m.gateway.Push()
+			case <-metricTicks:
+				if isSecret {
+					expireTime, err := time.Parse(time.RFC3339, *creds.LeaseExpireTime)
+					if err != nil {
+						log.Errorf("error parsing time: %s", err)
+					}
+					m.gateway.SetExpiration(expireTime.Sub(time.Now()))
+					m.gateway.Push()
 				}
 			}
 		}
@@ -145,6 +164,10 @@ func (m *DefaultManager) renewSecret(leaseID string) error {
 	}
 	log.WithFields(secretFields(secret)).Infof("successfully renewed secret")
 
+	creds, _ := m.secret.(*Credentials)
+	expire := time.Now().Add(time.Duration(secret.LeaseDuration) * time.Second).Format(time.RFC3339)
+	creds.LeaseExpireTime = &expire
+
 	return nil
 }
 
@@ -179,7 +202,7 @@ func renewAuth(client *api.Client, renew int) error {
 	return nil
 }
 
-func NewManager(client *api.Client, secret Secret, lease time.Duration, renew time.Duration, provider *VaultSecretsProvider, template *template.Template, outPath string) CredentialsRenewer {
+func NewManager(client *api.Client, secret Secret, lease time.Duration, renew time.Duration, provider *VaultSecretsProvider, template *template.Template, gateway *metrics.PushGateway, outPath string) CredentialsRenewer {
 
-	return &DefaultManager{client: client, secret: secret, lease: lease, renew: renew, provider: provider, template: template, outPath: outPath}
+	return &DefaultManager{client: client, secret: secret, lease: lease, renew: renew, provider: provider, template: template, gateway: gateway, outPath: outPath}
 }

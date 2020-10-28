@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/cenkalti/backoff"
 	api "github.com/hashicorp/vault/api"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -50,9 +50,10 @@ func defaultRetryStrategy(max time.Duration) backoff.BackOff {
 }
 
 type Credentials struct {
-	Username string
-	Password string
-	Secret   *api.Secret
+	Username        string
+	Password        string
+	Secret          *api.Secret
+	LeaseExpireTime *string
 }
 
 type Certificate struct {
