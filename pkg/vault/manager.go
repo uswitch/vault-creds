@@ -154,7 +154,10 @@ func (m *DefaultManager) Save() error {
 
 func (m *DefaultManager) renewSecret(leaseID string) error {
 	secret, err := m.client.Sys().Renew(leaseID, int(m.lease.Seconds()))
-	if err != nil {
+	if err != nil || secret == nil {
+		if err == nil {
+			err = fmt.Errorf("secret is nil")
+		}
 		log.Errorf("error renewing lease: %s", err)
 		fatalError := checkFatalError(err)
 		if fatalError != nil {
@@ -189,7 +192,10 @@ func (m *DefaultManager) renewCertificate() error {
 
 func renewAuth(client *api.Client, renew int) error {
 	secret, err := client.Auth().Token().RenewSelf(renew)
-	if err != nil {
+	if err != nil || secret == nil {
+		if err == nil {
+			err = fmt.Errorf("secret is nil")
+		}
 		log.Errorf("error renewing token: %s", err)
 		fatalError := checkFatalError(err)
 		if fatalError != nil {

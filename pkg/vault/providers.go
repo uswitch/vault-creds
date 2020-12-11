@@ -49,7 +49,10 @@ func (c *VaultSecretsProvider) newCertificate() (*Certificate, error) {
 	}
 
 	secret, err := c.client.Logical().Write(c.path, params)
-	if err != nil {
+	if err != nil || secret == nil {
+		if err == nil {
+			return nil, fmt.Errorf("secret is nil")
+		}
 		return nil, err
 	}
 
@@ -73,7 +76,10 @@ func (c *VaultSecretsProvider) newCertificate() (*Certificate, error) {
 
 func (c *VaultSecretsProvider) newCredentials() (*Credentials, error) {
 	secret, err := c.client.Logical().Read(c.path)
-	if err != nil {
+	if err != nil || secret == nil {
+		if err == nil {
+			return nil, fmt.Errorf("secret is nil")
+		}
 		return nil, err
 	}
 
