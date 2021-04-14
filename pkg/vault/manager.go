@@ -47,11 +47,15 @@ func (m DefaultManager) Run(ctx context.Context, c chan int) {
 			case <-renewTicks:
 				err := m.Renew(ctx)
 				if err != nil {
-					m.gateway.SetFailureTime()
-					m.gateway.SetFailureCount()
+					if m.gateway != nil {
+						m.gateway.SetFailureTime()
+						m.gateway.SetFailureCount()
+					}
 					log.Errorf("error renewing secret: %s", err)
 				} else {
-					m.gateway.SetSuccessTime()
+					if m.gateway != nil {
+						m.gateway.SetSuccessTime()
+					}
 				}
 				if err == ErrPermissionDenied || err == ErrLeaseNotFound {
 					log.Error("secret could no longer be renewed")
@@ -64,9 +68,11 @@ func (m DefaultManager) Run(ctx context.Context, c chan int) {
 						log.Errorf("error overwriting lease: %s", err)
 					}
 				}
-				m.gateway.Push()
+				if m.gateway != nil {
+					m.gateway.Push()
+				}
 			case <-metricTicks:
-				if isSecret {
+				if isSecret && m.gateway != nil {
 					expireTime, err := time.Parse(time.RFC3339, *creds.LeaseExpireTime)
 					if err != nil {
 						log.Errorf("error parsing time: %s", err)
