@@ -6,7 +6,7 @@ FROM scratch
 
 ADD bin/vaultcreds /vaultcreds
 
-COPY --from=base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --chmod=755 --from=base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 ENTRYPOINT ["/vaultcreds"]
 CMD []
