@@ -34,6 +34,12 @@ jobs:
       with:
         name: bin
         path: bin/
+    - name: Login to Quay.io
+      uses: docker/login-action@v3
+      with:
+        registry: quay.io
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_PASSWORD }}
     - id: meta
       uses: docker/metadata-action@v4
       with:
