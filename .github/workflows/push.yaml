@@ -58,7 +58,7 @@ jobs:
         platforms: linux/amd64,linux/arm64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
-        build-args: LDFLAGS="-X main.SHA=${{ github.sha }}"
+        build-args: LDFLAGS=-X main.SHA=${{ github.sha }}
 
     - name: Log into registry ghcr.io
       if: github.event_name != 'pull_request'
@@ -85,5 +85,5 @@ jobs:
         platforms: linux/amd64,linux/arm64
         push: true
         tags: ${{ steps.meta-forks.outputs.tags }}
-        build-args: LDFLAGS="-X main.SHA=${{ github.sha }}"
+        build-args: LDFLAGS=-X main.SHA=${{ github.sha }}
 
