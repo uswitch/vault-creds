@@ -34,6 +34,7 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Login to Quay.io
+      if: github.repository == 'uswitch/vault-creds'
       uses: docker/login-action@v3
       with:
         registry: quay.io
@@ -49,15 +50,6 @@ jobs:
           type=semver,pattern=v{{version}}
           type=sha,prefix=,format=long,
 
-    - id: meta-forks
-      if: github.repository != 'uswitch/vault-creds'
-      uses: docker/metadata-action@v4
-      with:
-        images: ghcr.io/${{ github.repository }}
-        tags: |
-          type=semver,pattern=v{{version}}
-          type=sha,prefix=,format=long,
-
     - uses: docker/build-push-action@v4
       if: github.repository == 'uswitch/vault-creds'
       with:
@@ -67,6 +59,23 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         build-args: LDFLAGS="-X main.SHA=${{ github.sha }}"
+
+    - name: Log into registry ghcr.io
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - id: meta-forks
+      if: github.repository != 'uswitch/vault-creds'
+      uses: docker/metadata-action@v4
+      with:
+        images: ghcr.io/${{ github.repository }}
+        tags: |
+          type=semver,pattern=v{{version}}
+          type=sha,prefix=,format=long,
 
     - uses: docker/build-push-action@v4
       if: github.repository != 'uswitch/vault-creds'
