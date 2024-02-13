@@ -24,6 +24,9 @@ jobs:
         name: bin
         path: bin/
   docker-build-push:
+    permissions:
+      contents: read
+      packages: write
     #if: github.ref_name == 'master' || startsWith(github.ref, 'refs/tags/v')
     needs: [test, build]
     runs-on: ubuntu-latest
