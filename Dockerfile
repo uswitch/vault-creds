@@ -2,6 +2,7 @@ FROM --platform=$BUILDPLATFORM golang:1.20-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG LDFLAGS
 
 # Install our build tools
 RUN apk add --update ca-certificates
