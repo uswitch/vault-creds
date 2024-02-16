@@ -8,6 +8,7 @@ require (
 	github.com/hashicorp/vault/sdk v0.1.13
 	github.com/prometheus/client_golang v1.8.0
 	github.com/sirupsen/logrus v1.7.0
+	golang.org/x/exp v0.0.0-20240213143201-ec583247a57a
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 	gopkg.in/yaml.v1 v1.0.0-20140924161607-9f9df34309c0
 	k8s.io/api v0.19.3
