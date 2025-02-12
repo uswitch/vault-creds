@@ -39,7 +39,7 @@ func (c *Credentials) EnvVars() map[string]string {
 	envMap := make(map[string]string)
 
 	for _, v := range os.Environ() {
-		splitEnv := strings.Split(v, "=")
+		splitEnv := strings.SplitN(v, "=", 2)
 		envMap[splitEnv[0]] = splitEnv[1]
 	}
 
