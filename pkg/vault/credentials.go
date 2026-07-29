@@ -40,7 +40,7 @@ func (c *Credentials) EnvVars() map[string]string {
 
 	for _, v := range os.Environ() {
 		splitEnv := strings.Split(v, "=")
-		envMap[splitEnv[0]] = splitEnv[1]
+		envMap[splitEnv[0]] = strings.Join(splitEnv[1:], "=")
 	}
 
 	// overwrites env variables called Username and Password
