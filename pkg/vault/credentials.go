@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	yaml "gopkg.in/yaml.v1"
+	yaml "gopkg.in/yaml.v3"
 )
 
 func unmarshalCredentials(bytes []byte) (*Credentials, error) {
