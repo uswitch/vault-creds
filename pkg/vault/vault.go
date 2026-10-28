@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenkalti/backoff"
+	"github.com/cenkalti/backoff/v4"
 	api "github.com/hashicorp/vault/api"
 	log "github.com/sirupsen/logrus"
 )

@@ -7,7 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/hashicorp/vault/api"
-	yaml "gopkg.in/yaml.v1"
+	yaml "gopkg.in/yaml.v3"
 )
 
 // KubernetesVaultClientFactory creates a Vault client

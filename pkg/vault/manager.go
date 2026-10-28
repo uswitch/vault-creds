@@ -8,7 +8,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/cenkalti/backoff"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/vault/api"
 	log "github.com/sirupsen/logrus"
 	"github.com/uswitch/vault-creds/pkg/metrics"

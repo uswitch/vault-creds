@@ -13,7 +13,7 @@ import (
 	"github.com/uswitch/vault-creds/pkg/kube"
 	"github.com/uswitch/vault-creds/pkg/metrics"
 	"github.com/uswitch/vault-creds/pkg/vault"
-	"gopkg.in/alecthomas/kingpin.v2"
+	"github.com/alecthomas/kingpin/v2"
 )
 
 var (
